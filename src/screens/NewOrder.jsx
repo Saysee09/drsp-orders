@@ -4,6 +4,7 @@ import { useStore } from '../lib/store'
 import { getConfig } from '../lib/api'
 import { PAY, PAY_LABEL, cleanPhone, groupOrders, inr, isValidPhone, makeId, menuText, prettyDate, receiptText, todayStr, waLink } from '../lib/utils'
 import { Badge, Button, Card, Field, PAY_COLORS, Segmented, Sheet, inputCls } from '../components/ui'
+import { PayButton } from './Orders'
 
 const blank = () => ({ phone: '', name: '', address: '', items: [], deliveryCharge: '', notes: '', dueDate: '', payment: 'Unpaid' })
 
@@ -298,6 +299,7 @@ export default function NewOrder() {
                 <Send size={20} /> Send receipt on WhatsApp
               </Button>
             </a>
+            <PayButton o={saved} size="lg" className="block w-full" />
             <Button variant="ghost" className="w-full" onClick={() => setSaved(null)}>
               Take next order
             </Button>

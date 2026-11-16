@@ -2,5 +2,8 @@
   "apiUrl": "",
   "googleClientId": "",
   "businessName": "DRSP Homemade Pickles",
-  "businessPhone": ""
+  "businessPhone": "",
+  "upiId": "",
+  "upiName": "DRSP Pickles",
+  "reviewLink": ""
 }

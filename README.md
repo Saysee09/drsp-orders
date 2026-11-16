@@ -81,9 +81,15 @@ Edit [`public/config.json`](public/config.json) on GitHub (pencil icon) and comm
   "apiUrl": "https://script.google.com/macros/s/XXXX/exec",
   "googleClientId": "1234-abc.apps.googleusercontent.com",
   "businessName": "DRSP Homemade Pickles",
-  "businessPhone": ""
+  "businessPhone": "",
+  "upiId": "yourname@okaxis",
+  "upiName": "DRSP Pickles",
+  "reviewLink": ""
 }
 ```
+
+- `upiId` – the UPI ID that customers pay to (used by **Request ₹ via UPI**).
+- `reviewLink` – optional. Add a Google review or website link later and the feedback message will include it.
 
 The site redeploys in about a minute. Demo mode switches off and the Google Sign-In button appears.
 
@@ -99,6 +105,8 @@ The site redeploys in about a minute. Demo mode switches off and the Google Sign
 - **New** – type the 10-digit number. A returning customer's name, address, tier and *"+ Add usual"* fill in automatically. Add several products (each with its own discount), then delivery charge, deliver-by date, notes and payment. **Save Order to Sheet** → **Send receipt on WhatsApp**. **Send Menu** builds the WhatsApp menu from the active products.
 - **Orders** – search plus filters (All, Pending Prep, Unpaid, Ready for Delivery, Due ≤ Today). One tap changes Prep / Payment / Delivery for the whole order, with **Undo**.
 - **Kitchen** (chef-hat button) – big text, *To make now* totals, cards sorted by due date, giant **START PREP** / **MARK PACKED** buttons with Undo. No deleting or money.
+- **Request UPI payment** – unpaid orders get a button that opens WhatsApp with the amount, your UPI ID and a tap-to-pay `upi://` link. It's also on the "Order saved" screen and in *Payments to collect* on the Profit page.
+- **Ask for feedback** – the day after an order is marked *Delivered*, it shows an **Ask for Feedback** button (Orders → *Ask Feedback* filter, and the *Feedback to ask* list on Profit). Tapping it opens WhatsApp with a 1–5 star request and marks the order (`Feedback_Sent = Yes`) so nobody asks twice. Orders stop showing after 21 days.
 - **Expenses** – category pills, amount, date, vendor; monthly totals by category.
 - **Profit** – revenue, expenses, net profit, margin %, AOV, unpaid to collect, product ranking, top customers, and the 30-day **reorder nudge** list with WhatsApp buttons.
 - **Catalog** (Admin) – CSV price upload with a side-by-side diff before anything is written. You can also add, edit or deactivate products and download the current price list as a CSV. Past orders never change price.
@@ -106,6 +114,7 @@ The site redeploys in about a minute. Demo mode switches off and the Google Sign
 WhatsApp uses official `wa.me` links only. The app opens WhatsApp with the message pre-filled, and you press Send, so there is no ban risk.
 
 ### Sheet notes
+- `Delivered_At` is filled in automatically when an order is marked Delivered. `Feedback_Sent` becomes `Yes` once feedback has been asked. If your sheet was set up before these columns existed, run `setup` again and they'll be added at the end.
 - `Orders` has one row per item; items in the same order share an `Order_ID`. Delivery charge is stored on the order's first row.
 - `Customers` is rebuilt automatically after each order (Total_Orders counts distinct orders). Tiers: VIP > ₹5,000, Regular > ₹2,000, otherwise New.
 - Don't rename the header row. Adding your own extra columns at the end is fine.

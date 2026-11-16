@@ -65,6 +65,8 @@ export function groupOrders(rows) {
         address: r.Address || '',
         notes: r.Notes || '',
         dueDate: String(r.Due_Date || ''),
+        deliveredAt: String(r.Delivered_At || (r.Delivery_Status === 'Delivered' ? String(r.Updated_At || '').slice(0, 10) : '')),
+        feedbackSent: r.Feedback_Sent === 'Yes',
         deliveryCharge: 0,
         items: [],
         subtotal: 0,
@@ -226,4 +228,60 @@ export function downloadText(filename, text, type = 'text/csv') {
   a.download = filename
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+/* ------------------------------------------------------- UPI & feedback */
+
+export const isValidUpi = (v) => /^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(String(v || '').trim())
+
+/** Amount still to collect. */
+export const amountDue = (o) => (o.payment === 'Unpaid' ? o.total : 0)
+
+export function upiUri({ upiId, upiName }, amount, note) {
+  const q = new URLSearchParams({ pa: upiId.trim(), pn: upiName || 'DRSP Pickles', am: Number(amount).toFixed(2), cu: 'INR', tn: note })
+  return `upi://pay?${q.toString().replace(/\+/g, '%20').replace(/%40/g, '@')}`
+}
+
+export function paymentText(o, cfg) {
+  const biz = cfg.businessName || 'DRSP Homemade Pickles'
+  return [
+    `*PAYMENT REQUEST — ${biz.toUpperCase()}* 🧾`,
+    '',
+    `Namaste ${String(o.customerName).split(' ')[0]}! 🙏`,
+    '',
+    `*Order ID:* ${o.orderId}`,
+    ...o.items.map((i) => `• ${i.name} x ${i.qty} — ${inr(i.sold)}`),
+    ...(o.deliveryCharge ? [`• Delivery — ${inr(o.deliveryCharge)}`] : []),
+    `*Amount to pay:* ${inr(o.total)}`,
+    '',
+    `*Pay by UPI to:* ${cfg.upiId}${cfg.upiName ? ` (${cfg.upiName})` : ''}`,
+    'GPay / PhonePe / Paytm — any UPI app works.',
+    '',
+    `Tap to pay: ${upiUri(cfg, o.total, o.orderId)}`,
+    '',
+    'Please send a screenshot here once paid. Thank you! 🏺',
+  ].join('\n')
+}
+
+/** Delivered at least 1 day ago, feedback not yet asked, and not older than 21 days. */
+export function needsFeedback(o, today = todayStr()) {
+  if (o.delivery !== 'Delivered' || o.feedbackSent || !o.deliveredAt) return false
+  const d = daysBetween(o.deliveredAt, today)
+  return d >= 1 && d <= 21
+}
+
+export function feedbackText(o, cfg) {
+  const biz = cfg.businessName || 'DRSP Homemade Pickles'
+  const first = String(o.customerName).split(' ')[0] || 'there'
+  const items = [...new Set(o.items.map((i) => String(i.name).split(' - ')[0]))].join(', ')
+  const lines = [
+    `Namaste ${first}! 🙏`,
+    '',
+    `Hope you are enjoying your *${items}* from *${biz}*!`,
+    '',
+    'How did you like it? Please reply with a rating ⭐ 1–5 and a line about the taste, spice and freshness. Your feedback helps our small family kitchen a lot.',
+  ]
+  if (cfg.reviewLink) lines.push('', `If you loved it, a quick review here would mean the world to us: ${cfg.reviewLink}`)
+  lines.push('', 'Thank you for supporting us! 🏺')
+  return lines.join('\n')
 }

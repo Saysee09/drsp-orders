@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { BellRing, Crown, MessageCircle, Package, TrendingDown, TrendingUp } from 'lucide-react'
+import { BellRing, Crown, IndianRupee, MessageCircle, Package, Star, TrendingDown, TrendingUp } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { getConfig } from '../lib/api'
-import { EXPENSE_CATEGORIES, addDays, daysBetween, inr, nudgeText, prettyDate, todayStr, waLink } from '../lib/utils'
+import { EXPENSE_CATEGORIES, addDays, daysBetween, inr, needsFeedback, nudgeText, prettyDate, todayStr, waLink } from '../lib/utils'
+import { FeedbackButton, PayButton } from './Orders'
 import { Badge, Card, Empty, Pill, SectionTitle, cx } from '../components/ui'
 
 function range(id) {
@@ -87,6 +88,8 @@ export default function Dashboard() {
   }, [orders, data.expenses, from, to])
 
   const vip = customers.slice(0, 8)
+  const feedback = orders.filter((o) => needsFeedback(o, t)).sort((a, b) => a.deliveredAt.localeCompare(b.deliveredAt))
+  const unpaidAll = orders.filter((o) => o.payment === 'Unpaid').sort((a, b) => a.date.localeCompare(b.date))
   const nudges = customers.filter((c) => c.lastOrder && daysBetween(c.lastOrder, t) > 30).sort((a, b) => b.totalSpent - a.totalSpent)
   const tiers = ['VIP', 'Regular', 'New'].map((x) => [x, customers.filter((c) => c.tier === x).length])
   const maxRev = s.products[0]?.revenue || 0
@@ -139,6 +142,38 @@ export default function Dashboard() {
           </Card>
         </>
       )}
+
+      <SectionTitle right={<span className="text-xs text-slate-500">delivered 1+ day ago</span>}>Feedback to ask ({feedback.length})</SectionTitle>
+      <Card className="divide-y divide-slate-100">
+        {feedback.length === 0 && <Empty icon={Star} title="No feedback pending">Delivered orders show here the day after delivery.</Empty>}
+        {feedback.slice(0, 20).map((o) => (
+          <div key={o.orderId} className="flex items-center gap-3 p-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-bold text-slate-900">{o.customerName}</div>
+              <div className="truncate text-xs text-slate-500">
+                Delivered {prettyDate(o.deliveredAt)} · {o.items.map((i) => i.name).join(', ')}
+              </div>
+            </div>
+            <FeedbackButton o={o} size="sm" />
+          </div>
+        ))}
+      </Card>
+
+      <SectionTitle right={<span className="text-xs text-slate-500">all time</span>}>Payments to collect ({unpaidAll.length})</SectionTitle>
+      <Card className="divide-y divide-slate-100">
+        {unpaidAll.length === 0 && <Empty icon={IndianRupee} title="All orders are paid" />}
+        {unpaidAll.slice(0, 20).map((o) => (
+          <div key={o.orderId} className="flex items-center gap-3 p-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-bold text-slate-900">{o.customerName}</div>
+              <div className="truncate text-xs text-slate-500">
+                {o.orderId} · {prettyDate(o.date)} · {o.delivery}
+              </div>
+            </div>
+            <PayButton o={o} size="sm" />
+          </div>
+        ))}
+      </Card>
 
       <SectionTitle right={<span className="text-xs text-slate-500">{tiers.map(([x, n]) => `${n} ${x}`).join(' · ')}</span>}>Top customers (all time)</SectionTitle>
       <Card className="divide-y divide-slate-100">

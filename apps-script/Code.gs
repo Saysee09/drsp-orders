@@ -22,7 +22,7 @@ const SESSION_DAYS = 30;
 const SHEETS = {
   Orders: ['Order_ID', 'Date', 'Customer_Name', 'Customer_Phone', 'Product_Code', 'Product_Name', 'QTY', 'MRP',
     'Discount', 'Sold_Amount', 'Lead_By', 'Prep_Status', 'Payment_Status', 'Delivery_Status',
-    'Delivery_Charge', 'Address', 'Notes', 'Due_Date', 'Updated_At'],
+    'Delivery_Charge', 'Address', 'Notes', 'Due_Date', 'Updated_At', 'Delivered_At', 'Feedback_Sent'],
   Products_Master: ['Product_Code', 'Product_Name', 'MRP', 'Category', 'Active_Status'],
   Expenses: ['Expense_ID', 'Date', 'Category', 'Item_Name', 'Amount', 'Remarks', 'Lead_By'],
   Customers: ['Customer_Phone', 'Customer_Name', 'Total_Orders', 'Total_Spent', 'Last_Order_Date',
@@ -32,7 +32,7 @@ const SHEETS = {
 
 // Columns stored as plain text so Sheets never turns them into dates/numbers.
 const TEXT_COLS = {
-  Orders: ['Order_ID', 'Date', 'Customer_Phone', 'Product_Code', 'Due_Date', 'Updated_At'],
+  Orders: ['Order_ID', 'Date', 'Customer_Phone', 'Product_Code', 'Due_Date', 'Updated_At', 'Delivered_At'],
   Products_Master: ['Product_Code'],
   Expenses: ['Expense_ID', 'Date'],
   Customers: ['Customer_Phone', 'Last_Order_Date'],
@@ -279,18 +279,24 @@ function addOrder_(req, user) {
 }
 
 function updateOrder_(req) {
-  const allowed = { Prep_Status: PREP, Payment_Status: PAY, Delivery_Status: DELIVERY, Notes: null, Due_Date: null, Address: null };
+  const allowed = { Prep_Status: PREP, Payment_Status: PAY, Delivery_Status: DELIVERY, Notes: null, Due_Date: null, Address: null, Feedback_Sent: ['Yes', ''] };
   const sh = sheet_('Orders');
   const hdr = headers_(sh);
   const ids = columnValues_(sh, 'Order_ID');
   const rowsIdx = [];
   ids.forEach(function (id, i) { if (id === req.orderId) rowsIdx.push(i + 2); });
   if (!rowsIdx.length) throw new Error('ORDER_NOT_FOUND');
-  const fields = req.fields || {};
+  const fields = Object.assign({}, req.fields || {});
+  // remember the day an order was delivered (used for the feedback reminder)
+  if (fields.Delivery_Status === 'Delivered') {
+    fields.Delivered_At = Utilities.formatDate(new Date(), SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+    allowed.Delivered_At = null;
+  }
   Object.keys(fields).forEach(function (f) {
     if (!(f in allowed)) return;
     if (allowed[f] && allowed[f].indexOf(fields[f]) === -1) return;
     const c = hdr.indexOf(f) + 1;
+    if (c < 1) return; // column missing: re-run setup() to add it
     rowsIdx.forEach(function (r) { sh.getRange(r, c).setValue(fields[f]); });
   });
   const u = hdr.indexOf('Updated_At') + 1;

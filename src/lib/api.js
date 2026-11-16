@@ -1,6 +1,6 @@
 import { addDays, todayStr, makeId } from './utils'
 
-let config = { apiUrl: '', googleClientId: '', businessName: 'DRSP Homemade Pickles', businessPhone: '' }
+let config = { apiUrl: '', googleClientId: '', businessName: 'DRSP Homemade Pickles', businessPhone: '', upiId: '', upiName: '', reviewLink: '' }
 
 export async function loadConfig() {
   try {
@@ -19,7 +19,8 @@ export async function loadConfig() {
   return config
 }
 
-export const getConfig = () => config
+/** In demo mode a sample UPI ID is used so the payment flow can be tried. */
+export const getConfig = () => (!config.apiUrl && !config.upiId ? { ...config, upiId: 'drsppickles@okaxis', upiName: 'DRSP Pickles' } : config)
 export const isDemo = () => !config.apiUrl
 
 export class ApiError extends Error {
@@ -84,9 +85,12 @@ export function applyOp(data, op, user) {
       d.orders = [...d.orders, ...rows]
       return d
     }
-    case 'updateOrder':
-      d.orders = d.orders.map((r) => (r.Order_ID === op.orderId ? { ...r, ...op.fields, Updated_At: now } : r))
+    case 'updateOrder': {
+      const fields = { ...op.fields }
+      if (fields.Delivery_Status === 'Delivered') fields.Delivered_At = op.deliveredAt || todayStr()
+      d.orders = d.orders.map((r) => (r.Order_ID === op.orderId ? { ...r, ...fields, Updated_At: now } : r))
       return d
+    }
     case 'deleteOrder':
       d.orders = d.orders.filter((r) => r.Order_ID !== op.orderId)
       return d
@@ -200,6 +204,10 @@ function seedDemo() {
     const date = addDays(t, day)
     data = applyOp(data, { action: 'addExpense', expense: { expenseId: `EXP-${date.replace(/-/g, '')}-${100 + n}`, date, category: cat, item, amount: amt } }, { name: 'Sasi' })
   })
+  // delivered demo orders: pretend they were delivered 2 days after ordering
+  data.orders = data.orders.map((r) =>
+    r.Delivery_Status === 'Delivered' ? { ...r, Delivered_At: addDays(String(r.Date), 2), Feedback_Sent: String(r.Date) < addDays(t, -30) ? 'Yes' : '' } : r,
+  )
   return data
 }
 

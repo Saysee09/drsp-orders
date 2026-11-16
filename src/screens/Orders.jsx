@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { CalendarClock, ClipboardList, CloudUpload, MapPin, MessageCircle, MoreVertical, Phone, Search, StickyNote, Trash2 } from 'lucide-react'
+import { CalendarClock, ClipboardList, CloudUpload, IndianRupee, MapPin, MessageCircle, MoreVertical, Phone, Search, Star, StickyNote, Trash2 } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { getConfig } from '../lib/api'
-import { DELIVERY, PAY, PAY_LABEL, PREP, inr, prettyDate, receiptText, todayStr, waLink } from '../lib/utils'
+import { DELIVERY, PAY, PREP, feedbackText, inr, isValidUpi, needsFeedback, paymentText, prettyDate, receiptText, todayStr, waLink } from '../lib/utils'
 import { Badge, Button, Card, DEL_COLORS, Empty, PAY_COLORS, PREP_COLORS, Pill, Segmented, Sheet, cx } from '../components/ui'
 
 const FILTERS = [
@@ -11,7 +11,47 @@ const FILTERS = [
   ['unpaid', 'Unpaid', (o) => o.payment === 'Unpaid'],
   ['ready', 'Ready for Delivery', (o) => o.prep === 'Packed' && o.delivery === 'Pending'],
   ['due', 'Due ≤ Today', (o) => o.dueDate && o.dueDate <= todayStr() && o.delivery !== 'Delivered'],
+  ['feedback', 'Ask Feedback', (o) => needsFeedback(o)],
 ]
+
+/** WhatsApp payment request with the UPI ID and a tap-to-pay link. */
+export function PayButton({ o, className, size }) {
+  const { notify } = useStore()
+  const cfg = getConfig()
+  if (o.payment !== 'Unpaid') return null
+  if (!isValidUpi(cfg.upiId))
+    return (
+      <Button variant="primary" size={size} className={className} onClick={() => notify('Add your UPI ID as "upiId" in config.json first', 'error')}>
+        <IndianRupee size={18} /> Request UPI Payment
+      </Button>
+    )
+  return (
+    <a href={waLink(o.phone, paymentText(o, cfg))} target="_blank" rel="noreferrer" className={className}>
+      <Button variant="primary" size={size} className="w-full">
+        <IndianRupee size={18} /> Request {inr(o.total)} via UPI
+      </Button>
+    </a>
+  )
+}
+
+/** Opens WhatsApp with the feedback message and marks the order so it is not asked twice. */
+export function FeedbackButton({ o, className, size }) {
+  const { mutate } = useStore()
+  if (!needsFeedback(o)) return null
+  return (
+    <a
+      href={waLink(o.phone, feedbackText(o, getConfig()))}
+      target="_blank"
+      rel="noreferrer"
+      className={className}
+      onClick={() => mutate('updateOrder', { orderId: o.orderId, fields: { Feedback_Sent: 'Yes' } })}
+    >
+      <Button variant="amber" size={size} className="w-full">
+        <Star size={18} /> Ask for Feedback
+      </Button>
+    </a>
+  )
+}
 
 export function OrderCard({ o }) {
   const { mutate, user, notify } = useStore()
@@ -99,6 +139,13 @@ export function OrderCard({ o }) {
         <Row label="Delivery">
           <Segmented options={DELIVERY} value={o.delivery} colors={DEL_COLORS} onChange={(v) => set('Delivery_Status', v, o.delivery)} />
         </Row>
+        {(o.payment === 'Unpaid' || needsFeedback(o)) && (
+          <div className="flex gap-2 pt-1">
+            <PayButton o={o} className="flex-1" />
+            <FeedbackButton o={o} className="flex-1" />
+          </div>
+        )}
+        {o.delivery === 'Delivered' && o.feedbackSent && <p className="text-xs font-semibold text-emerald-700">✓ Feedback asked</p>}
         <div className="flex gap-2 pt-1">
           <a href={waLink(o.phone, receiptText(o, biz))} target="_blank" rel="noreferrer" className="flex-1">
             <Button variant="whatsapp" className="w-full">
