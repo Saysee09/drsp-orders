@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <rect x="176" y="92" width="160" height="56" rx="14" fill="#f59e0b"/>
+  <rect x="160" y="138" width="192" height="22" rx="8" fill="#b45309"/>
+  <path d="M150 170 h212 c22 0 36 16 36 38 v186 c0 32 -24 56 -56 56 H170 c-32 0 -56 -24 -56 -56 V208 c0-22 14-38 36-38z" fill="#ea580c"/>
+  <rect x="150" y="250" width="212" height="110" rx="18" fill="#fef3c7"/>
+  <text x="256" y="327" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="66" text-anchor="middle" fill="#0f172a">DRSP</text>
+</svg>
