@@ -1,69 +1,105 @@
 import { useMemo, useState } from 'react'
-import { CalendarClock, ClipboardList, CloudUpload, IndianRupee, MapPin, MessageCircle, MoreVertical, Phone, Search, Star, StickyNote, Trash2 } from 'lucide-react'
+import { CalendarClock, ClipboardList, CloudUpload, IndianRupee, MapPin, MoreVertical, Phone, Search, Star, StickyNote, Trash2, Truck } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { getConfig } from '../lib/api'
-import { DELIVERY, PAY, PREP, feedbackText, inr, isValidUpi, needsFeedback, paymentText, prettyDate, receiptText, todayStr, waLink } from '../lib/utils'
-import { Badge, Button, Card, DEL_COLORS, Empty, PAY_COLORS, PREP_COLORS, Pill, Segmented, Sheet, cx } from '../components/ui'
+import { PAY, STAGES, inr, needsFeedback, prettyDate, stageOf, todayStr } from '../lib/utils'
+import { Badge, Button, Card, Empty, PAY_COLORS, Pill, Segmented, Sheet, cx } from '../components/ui'
+import { MessageButton, MessageSheet } from '../components/Messages'
 
 const FILTERS = [
-  ['all', 'All', () => true],
-  ['prep', 'Pending Prep', (o) => o.prep !== 'Packed'],
+  ['active', 'Not delivered', (o) => o.delivery !== 'Delivered'],
+  ['make', 'To make', (o) => o.prep !== 'Packed'],
+  ['ready', 'Packed', (o) => stageOf(o) === 'packed'],
+  ['way', 'On the way', (o) => o.delivery === 'Out for Delivery'],
   ['unpaid', 'Unpaid', (o) => o.payment === 'Unpaid'],
-  ['ready', 'Ready for Delivery', (o) => o.prep === 'Packed' && o.delivery === 'Pending'],
-  ['due', 'Due ≤ Today', (o) => o.dueDate && o.dueDate <= todayStr() && o.delivery !== 'Delivered'],
-  ['feedback', 'Ask Feedback', (o) => needsFeedback(o)],
+  ['feedback', 'Ask feedback', (o) => needsFeedback(o)],
+  ['all', 'All', () => true],
 ]
 
-/** WhatsApp payment request with the UPI ID and a tap-to-pay link. */
-export function PayButton({ o, className, size }) {
-  const { notify } = useStore()
-  const cfg = getConfig()
-  if (o.payment !== 'Unpaid') return null
-  if (!isValidUpi(cfg.upiId))
-    return (
-      <Button variant="primary" size={size} className={className} onClick={() => notify('Add your UPI ID as "upiId" in config.json first', 'error')}>
-        <IndianRupee size={18} /> Request UPI Payment
-      </Button>
-    )
+const STAGE_COLORS = {
+  new: 'bg-amber-500 text-slate-950',
+  making: 'bg-orange-600 text-white',
+  packed: 'bg-emerald-600 text-white',
+  way: 'bg-indigo-600 text-white',
+  done: 'bg-slate-900 text-white',
+}
+
+/** One row of steps: New → Making → Packed → On the way → Delivered. */
+export function StageBar({ o }) {
+  const { mutate, notify } = useStore()
+  const cur = stageOf(o)
+  const curIdx = STAGES.findIndex((s) => s.id === cur)
+  const go = (s) => {
+    if (s.id === cur) return
+    const prev = { Prep_Status: o.prep, Delivery_Status: o.delivery }
+    mutate('updateOrder', { orderId: o.orderId, fields: { Prep_Status: s.prep, Delivery_Status: s.delivery } })
+    notify(`${o.customerName}: ${s.label}`, 'info', { label: 'Undo', run: () => mutate('updateOrder', { orderId: o.orderId, fields: prev }) })
+  }
   return (
-    <a href={waLink(o.phone, paymentText(o, cfg))} target="_blank" rel="noreferrer" className={className}>
-      <Button variant="primary" size={size} className="w-full">
-        <IndianRupee size={18} /> Request {inr(o.total)} via UPI
-      </Button>
-    </a>
+    <div className="grid grid-cols-5 gap-1 rounded-xl bg-slate-100 p-1">
+      {STAGES.map((s, i) => (
+        <button
+          key={s.id}
+          type="button"
+          onClick={() => go(s)}
+          className={cx(
+            'flex h-12 items-center justify-center rounded-lg px-0.5 text-center text-[13px] font-bold leading-tight transition',
+            s.id === cur ? STAGE_COLORS[s.id] : i < curIdx ? 'text-slate-400 line-through decoration-2' : 'text-slate-600 active:bg-slate-200',
+          )}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
   )
 }
 
-/** Opens WhatsApp with the feedback message and marks the order so it is not asked twice. */
+/** Opens the payment-request message (UPI). */
+export function PayButton({ o, className, size }) {
+  const [open, setOpen] = useState(false)
+  if (o.payment !== 'Unpaid') return null
+  return (
+    <>
+      <Button variant="primary" size={size} className={className} onClick={() => setOpen(true)}>
+        <IndianRupee size={18} /> Ask {inr(o.total)}
+      </Button>
+      <MessageSheet open={open} onClose={() => setOpen(false)} order={o} suggested="payment" />
+    </>
+  )
+}
+
+/** Opens the feedback message; marks the order so it is not asked twice. */
 export function FeedbackButton({ o, className, size }) {
-  const { mutate } = useStore()
+  const [open, setOpen] = useState(false)
   if (!needsFeedback(o)) return null
   return (
-    <a
-      href={waLink(o.phone, feedbackText(o, getConfig()))}
-      target="_blank"
-      rel="noreferrer"
-      className={className}
-      onClick={() => mutate('updateOrder', { orderId: o.orderId, fields: { Feedback_Sent: 'Yes' } })}
-    >
-      <Button variant="amber" size={size} className="w-full">
-        <Star size={18} /> Ask for Feedback
+    <>
+      <Button variant="amber" size={size} className={className} onClick={() => setOpen(true)}>
+        <Star size={18} /> Ask feedback
       </Button>
-    </a>
+      <MessageSheet open={open} onClose={() => setOpen(false)} order={o} suggested="feedback" />
+    </>
   )
+}
+
+/** The message that fits where the order is right now. */
+const suggestFor = (o) => {
+  const st = stageOf(o)
+  if (st === 'way') return 'on_the_way'
+  if (st === 'done') return needsFeedback(o) ? 'feedback' : 'delivered'
+  return 'order_confirm'
 }
 
 export function OrderCard({ o }) {
-  const { mutate, user, notify } = useStore()
+  const { mutate, notify } = useStore()
   const [menu, setMenu] = useState(false)
-  const biz = getConfig().businessName
-  const canDelete = ['Admin', 'Ops'].includes(user?.role)
-
-  const set = (field, value, prev) => {
-    mutate('updateOrder', { orderId: o.orderId, fields: { [field]: value } })
-    notify(`${o.customerName}: ${value}`, 'info', { label: 'Undo', run: () => mutate('updateOrder', { orderId: o.orderId, fields: { [field]: prev } }) })
+  const [msg, setMsg] = useState(false)
+  const setPay = (v) => {
+    const prev = o.payment
+    mutate('updateOrder', { orderId: o.orderId, fields: { Payment_Status: v } })
+    notify(`${o.customerName}: ${v === 'Unpaid' ? 'Unpaid' : 'Paid ' + v}`, 'info', { label: 'Undo', run: () => mutate('updateOrder', { orderId: o.orderId, fields: { Payment_Status: prev } }) })
   }
   const overdue = o.dueDate && o.dueDate < todayStr() && o.delivery !== 'Delivered'
+  const onTheWay = o.delivery === 'Out for Delivery'
 
   return (
     <Card className="overflow-hidden">
@@ -87,7 +123,7 @@ export function OrderCard({ o }) {
         </div>
         <div className="text-right">
           <div className="text-xl font-black text-slate-900">{inr(o.total)}</div>
-          {o.dueDate && (
+          {o.dueDate && o.delivery !== 'Delivered' && (
             <Badge className={cx('mt-1', overdue ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-700')}>
               <CalendarClock size={12} className="mr-1" />
               {prettyDate(o.dueDate)}
@@ -130,45 +166,36 @@ export function OrderCard({ o }) {
       )}
 
       <div className="mt-3 space-y-2 bg-slate-50 p-3">
-        <Row label="Prep">
-          <Segmented options={PREP} value={o.prep} colors={PREP_COLORS} onChange={(v) => set('Prep_Status', v, o.prep)} />
-        </Row>
-        <Row label="Payment">
-          <Segmented options={PAY} value={o.payment} colors={PAY_COLORS} labels={{ UPI: 'UPI' }} onChange={(v) => set('Payment_Status', v, o.payment)} />
-        </Row>
-        <Row label="Delivery">
-          <Segmented options={DELIVERY} value={o.delivery} colors={DEL_COLORS} onChange={(v) => set('Delivery_Status', v, o.delivery)} />
-        </Row>
+        <StageBar o={o} />
+        <Segmented options={PAY} value={o.payment} colors={PAY_COLORS} labels={{ Unpaid: 'Unpaid', UPI: 'Paid UPI', Cash: 'Paid cash' }} onChange={setPay} />
+        {onTheWay && (
+          <Button variant="dark" className="w-full" onClick={() => setMsg(true)}>
+            <Truck size={18} /> Tell customer it’s on the way
+          </Button>
+        )}
         {(o.payment === 'Unpaid' || needsFeedback(o)) && (
-          <div className="flex gap-2 pt-1">
+          <div className="flex gap-2">
             <PayButton o={o} className="flex-1" />
             <FeedbackButton o={o} className="flex-1" />
           </div>
         )}
         {o.delivery === 'Delivered' && o.feedbackSent && <p className="text-xs font-semibold text-emerald-700">✓ Feedback asked</p>}
-        <div className="flex gap-2 pt-1">
-          <a href={waLink(o.phone, receiptText(o, biz))} target="_blank" rel="noreferrer" className="flex-1">
-            <Button variant="whatsapp" className="w-full">
-              <MessageCircle size={18} /> WhatsApp Receipt
-            </Button>
-          </a>
+        <div className="flex gap-2">
+          <MessageButton order={o} suggested={suggestFor(o)} className="flex-1" label="WhatsApp" />
           <a href={`tel:+91${o.phone}`}>
             <Button variant="outline" aria-label="Call">
               <Phone size={18} />
             </Button>
           </a>
-          {canDelete && (
-            <Button variant="outline" aria-label="More" onClick={() => setMenu(true)}>
-              <MoreVertical size={18} />
-            </Button>
-          )}
+          <Button variant="outline" aria-label="More" onClick={() => setMenu(true)}>
+            <MoreVertical size={18} />
+          </Button>
         </div>
       </div>
+      <MessageSheet open={msg} onClose={() => setMsg(false)} order={o} suggested="on_the_way" />
 
       <Sheet open={menu} onClose={() => setMenu(false)} title={o.orderId}>
-        <p className="mb-4 text-sm text-slate-600">
-          Deleting removes all {o.items.length} item row(s) of this order from the Google Sheet. Use this only for mistakes or cancelled orders.
-        </p>
+        <p className="mb-4 text-sm text-slate-600">Delete only for mistakes or cancelled orders. It removes this order from the Google Sheet.</p>
         <Button
           variant="danger"
           className="w-full"
@@ -186,19 +213,10 @@ export function OrderCard({ o }) {
   )
 }
 
-function Row({ label, children }) {
-  return (
-    <div className="grid grid-cols-[64px_1fr] items-center gap-2">
-      <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</span>
-      {children}
-    </div>
-  )
-}
-
 export default function Orders() {
   const { orders } = useStore()
   const [q, setQ] = useState('')
-  const [filter, setFilter] = useState('all')
+  const [filter, setFilter] = useState('active')
   const [limit, setLimit] = useState(30)
 
   const counts = useMemo(() => Object.fromEntries(FILTERS.map(([id, , fn]) => [id, orders.filter(fn).length])), [orders])

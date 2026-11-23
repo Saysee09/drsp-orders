@@ -3,21 +3,23 @@
  * ------------------------------------------------------------
  * Paste this whole file into Extensions > Apps Script of your
  * master Google Sheet. Then:
- *   1. Paste your OAuth Client ID into GOOGLE_CLIENT_ID below.
+ *   1. Choose the family login below (APP_USERNAME / APP_PASSWORD).
  *   2. Run the `setup` function once (approve the permissions).
  *   3. Deploy > New deployment > Web app
  *        Execute as: Me    |    Who has access: Anyone
  *   4. Copy the Web app URL into public/config.json ("apiUrl").
  *
- * Security: every request is checked here, on Google's side.
- *   - Sign-in tokens are verified with Google and must be issued
- *     for YOUR client ID.
- *   - The email must be listed in the "Users" tab. Remove a row
- *     there and that person is locked out on their next action.
+ * No Google Cloud project is needed. Everyone in the family uses the
+ * same username + password. Security is checked here, on Google's side:
+ *   - Wrong passwords are counted; after 8 misses login pauses 15 min.
+ *   - Changing the password in the app signs out every phone.
+ *   - Forgot the password? Edit APP_PASSWORD below, Save, and run
+ *     `resetPassword` once. Then log in with the new one.
  */
 
-const GOOGLE_CLIENT_ID = 'PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com';
-const SESSION_DAYS = 30;
+const APP_USERNAME = 'drsp';
+const APP_PASSWORD = 'change-this-password';
+const SESSION_DAYS = 90;
 
 const SHEETS = {
   Orders: ['Order_ID', 'Date', 'Customer_Name', 'Customer_Phone', 'Product_Code', 'Product_Name', 'QTY', 'MRP',
@@ -27,7 +29,7 @@ const SHEETS = {
   Expenses: ['Expense_ID', 'Date', 'Category', 'Item_Name', 'Amount', 'Remarks', 'Lead_By'],
   Customers: ['Customer_Phone', 'Customer_Name', 'Total_Orders', 'Total_Spent', 'Last_Order_Date',
     'Favorite_Product', 'Customer_Tier', 'Address'],
-  Users: ['Email', 'Name', 'Role'],
+  Templates: ['Key', 'Name', 'Type', 'Text'],
 };
 
 // Columns stored as plain text so Sheets never turns them into dates/numbers.
@@ -36,7 +38,7 @@ const TEXT_COLS = {
   Products_Master: ['Product_Code'],
   Expenses: ['Expense_ID', 'Date'],
   Customers: ['Customer_Phone', 'Last_Order_Date'],
-  Users: [],
+  Templates: ['Key', 'Text'],
 };
 
 const SEED_PRODUCTS = [
@@ -56,20 +58,13 @@ const SEED_PRODUCTS = [
   ['PWD-CHK-100', 'Powder - Chicken - 100g', 100, 'Spices / Powders', 'Active'],
 ];
 
-const ROLES = ['Admin', 'Ops', 'Kitchen', 'Helper'];
-const PERMS = {
-  addOrder: ['Admin', 'Ops', 'Kitchen'],
-  updateOrder: ROLES,
-  deleteOrder: ['Admin', 'Ops'],
-  addExpense: ['Admin', 'Ops'],
-  deleteExpense: ['Admin'],
-  updatePrices: ['Admin'],
-  saveProduct: ['Admin'],
-};
-
 const PREP = ['Pending', 'In Batch', 'Packed'];
 const PAY = ['Unpaid', 'UPI', 'Cash'];
-const DELIVERY = ['Pending', 'Shipped', 'Delivered'];
+// 'Shipped' is the old name for 'Out for Delivery' and is still accepted.
+const DELIVERY = ['Pending', 'Out for Delivery', 'Delivered', 'Shipped'];
+const TEMPLATE_TYPES = ['customer', 'order'];
+const MAX_FAILS = 8;
+const LOCK_MINUTES = 15;
 
 /* ---------------------------------------------------------------- setup */
 
@@ -105,20 +100,11 @@ function setup() {
     products.getRange(2, 1, SEED_PRODUCTS.length, 5).setValues(SEED_PRODUCTS);
   }
 
-  const users = ss.getSheetByName('Users');
-  if (users.getLastRow() < 2) {
-    const me = Session.getActiveUser().getEmail();
-    if (me) users.getRange(2, 1, 1, 3).setValues([[me, 'Sasi', 'Admin']]);
-  }
-  // Role dropdown for the Users tab
-  users.getRange('C2:C50').setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(ROLES, true).build());
-
   const blank = ss.getSheetByName('Sheet1');
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
 
   rebuildCustomers_();
-  Logger.log('DRSP Orders setup complete. Add family members in the Users tab.');
+  Logger.log('DRSP Orders setup complete. Login: ' + APP_USERNAME + ' / (your APP_PASSWORD). Message templates are added by the app the first time you edit one.');
 }
 
 /* --------------------------------------------------------------- routing */
@@ -135,7 +121,7 @@ function doPost(e) {
     return json_({ ok: false, error: 'BAD_REQUEST' });
   }
   try {
-    if (req.action === 'login') return json_({ ok: true, data: login_(req.idToken) });
+    if (req.action === 'login') return json_({ ok: true, data: login_(req.username, req.password) });
 
     const user = auth_(req.session);
     if (req.action === 'logout') {
@@ -143,10 +129,9 @@ function doPost(e) {
       return json_({ ok: true });
     }
     if (req.action === 'sync') return json_({ ok: true, data: snapshot_(user) });
+    if (req.action === 'changePassword') return json_({ ok: true, data: changePassword_(req, user) });
 
-    const allowed = PERMS[req.action];
-    if (!allowed) return json_({ ok: false, error: 'UNKNOWN_ACTION' });
-    if (allowed.indexOf(user.role) === -1) return json_({ ok: false, error: 'NOT_ALLOWED' });
+    if (!ACTIONS[req.action]) return json_({ ok: false, error: 'UNKNOWN_ACTION' });
 
     const lock = LockService.getScriptLock();
     lock.waitLock(25000);
@@ -170,26 +155,47 @@ const ACTIONS = {
   deleteExpense: deleteExpense_,
   updatePrices: updatePrices_,
   saveProduct: saveProduct_,
+  saveTemplate: saveTemplate_,
+  deleteTemplate: deleteTemplate_,
 };
 
 /* ------------------------------------------------------------------ auth */
 
-function login_(idToken) {
-  if (!idToken) throw new Error('NO_TOKEN');
-  const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
-    { muteHttpExceptions: true });
-  if (res.getResponseCode() !== 200) throw new Error('INVALID_TOKEN');
-  const info = JSON.parse(res.getContentText());
-  if (info.aud !== GOOGLE_CLIENT_ID) throw new Error('WRONG_CLIENT');
-  if (String(info.email_verified) !== 'true') throw new Error('EMAIL_NOT_VERIFIED');
+function hash_(salt, text) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, salt + '|' + text, Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
+}
 
-  const user = findUser_(info.email);
-  if (!user) throw new Error('ACCESS_DENIED');
+/** The current login: the one changed in the app, or else the one at the top of this file. */
+function credentials_() {
+  const p = PropertiesService.getScriptProperties();
+  const raw = p.getProperty('LOGIN');
+  if (raw) return JSON.parse(raw);
+  return { username: APP_USERNAME, salt: '', hash: '', plain: APP_PASSWORD };
+}
 
+function checkPassword_(cred, password) {
+  return cred.hash ? hash_(cred.salt, password) === cred.hash : String(password) === String(cred.plain);
+}
+
+function login_(username, password) {
   const props = PropertiesService.getScriptProperties();
+  const now = Date.now();
+  const fails = JSON.parse(props.getProperty('FAILS') || '{"n":0,"until":0}');
+  if (fails.until > now) throw new Error('LOCKED');
+
+  const cred = credentials_();
+  const okUser = String(username || '').trim().toLowerCase() === String(cred.username).trim().toLowerCase();
+  if (!okUser || !checkPassword_(cred, password)) {
+    fails.n = (fails.n || 0) + 1;
+    if (fails.n >= MAX_FAILS) { fails.n = 0; fails.until = now + LOCK_MINUTES * 60000; }
+    props.setProperty('FAILS', JSON.stringify(fails));
+    throw new Error(fails.until > now ? 'LOCKED' : 'WRONG_LOGIN');
+  }
+  props.deleteProperty('FAILS');
+
   // clean up expired sessions
   const all = props.getProperties();
-  const now = Date.now();
   Object.keys(all).forEach(function (k) {
     if (k.indexOf('S_') === 0) {
       try { if (JSON.parse(all[k]).exp < now) props.deleteProperty(k); } catch (e) { props.deleteProperty(k); }
@@ -197,8 +203,8 @@ function login_(idToken) {
   });
 
   const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  props.setProperty('S_' + token, JSON.stringify({ email: user.email, exp: now + SESSION_DAYS * 864e5 }));
-  return { session: token, user: { email: user.email, name: user.name, role: user.role, picture: info.picture || '' } };
+  props.setProperty('S_' + token, JSON.stringify({ exp: now + SESSION_DAYS * 864e5 }));
+  return { session: token, user: { username: cred.username } };
 }
 
 function auth_(session) {
@@ -207,21 +213,32 @@ function auth_(session) {
   if (!raw) throw new Error('SESSION_EXPIRED');
   const s = JSON.parse(raw);
   if (s.exp < Date.now()) throw new Error('SESSION_EXPIRED');
-  const user = findUser_(s.email);
-  if (!user) throw new Error('ACCESS_DENIED');
-  return user;
+  return { username: credentials_().username };
 }
 
-function findUser_(email) {
-  const rows = readRows_('Users');
-  const e = String(email || '').trim().toLowerCase();
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i].Email).trim().toLowerCase() === e) {
-      const role = ROLES.indexOf(rows[i].Role) > -1 ? rows[i].Role : 'Helper';
-      return { email: e, name: rows[i].Name || e.split('@')[0], role: role };
-    }
-  }
-  return null;
+/** Change username/password from the app. Every other phone is signed out. */
+function changePassword_(req, user) {
+  const cred = credentials_();
+  if (!checkPassword_(cred, req.currentPassword)) throw new Error('WRONG_PASSWORD');
+  const pw = String(req.newPassword || '');
+  if (pw.length < 6) throw new Error('PASSWORD_TOO_SHORT');
+  const username = String(req.newUsername || cred.username).trim() || cred.username;
+  const salt = Utilities.getUuid();
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('LOGIN', JSON.stringify({ username: username, salt: salt, hash: hash_(salt, pw) }));
+  const all = props.getProperties();
+  Object.keys(all).forEach(function (k) { if (k.indexOf('S_') === 0 && k !== 'S_' + req.session) props.deleteProperty(k); });
+  return { username: username };
+}
+
+/** Run by hand from the Apps Script editor if the password is forgotten. */
+function resetPassword() {
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty('LOGIN');
+  props.deleteProperty('FAILS');
+  const all = props.getProperties();
+  Object.keys(all).forEach(function (k) { if (k.indexOf('S_') === 0) props.deleteProperty(k); });
+  Logger.log('Password reset. Log in with ' + APP_USERNAME + ' and the APP_PASSWORD at the top of this file.');
 }
 
 /* ------------------------------------------------------------------ data */
@@ -231,13 +248,14 @@ function snapshot_(user) {
     user: user,
     products: readRows_('Products_Master'),
     orders: readRows_('Orders'),
-    expenses: user.role === 'Admin' || user.role === 'Ops' ? readRows_('Expenses') : [],
+    expenses: readRows_('Expenses'),
     customers: readRows_('Customers'),
+    templates: readRows_('Templates'),
     serverTime: new Date().toISOString(),
   };
 }
 
-function addOrder_(req, user) {
+function addOrder_(req) {
   const o = req.order;
   if (!o || !o.orderId || !o.items || !o.items.length) throw new Error('INVALID_ORDER');
   if (!/^[6-9]\d{9}$/.test(String(o.phone))) throw new Error('INVALID_PHONE');
@@ -261,7 +279,7 @@ function addOrder_(req, user) {
       MRP: mrp,
       Discount: disc,
       Sold_Amount: qty * mrp - disc,
-      Lead_By: user.name,
+      Lead_By: String(o.leadBy || '').slice(0, 40),
       Prep_Status: PREP.indexOf(o.prep) > -1 ? o.prep : 'Pending',
       Payment_Status: PAY.indexOf(o.payment) > -1 ? o.payment : 'Unpaid',
       Delivery_Status: DELIVERY.indexOf(o.delivery) > -1 ? o.delivery : 'Pending',
@@ -291,10 +309,14 @@ function updateOrder_(req) {
   if (fields.Delivery_Status === 'Delivered') {
     fields.Delivered_At = Utilities.formatDate(new Date(), SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
     allowed.Delivered_At = null;
+  } else if (fields.Delivery_Status) {
+    fields.Delivered_At = ''; // moved back from Delivered
+    allowed.Delivered_At = null;
   }
   Object.keys(fields).forEach(function (f) {
     if (!(f in allowed)) return;
     if (allowed[f] && allowed[f].indexOf(fields[f]) === -1) return;
+    if (f === 'Delivery_Status' && fields[f] === 'Shipped') fields[f] = 'Out for Delivery';
     const c = hdr.indexOf(f) + 1;
     if (c < 1) return; // column missing: re-run setup() to add it
     rowsIdx.forEach(function (r) { sh.getRange(r, c).setValue(fields[f]); });
@@ -316,7 +338,7 @@ function deleteOrder_(req) {
   return { deleted: true };
 }
 
-function addExpense_(req, user) {
+function addExpense_(req) {
   const x = req.expense;
   if (!x || !x.expenseId || !(Number(x.amount) > 0) || !String(x.item || '').trim()) throw new Error('INVALID_EXPENSE');
   const sh = sheet_('Expenses');
@@ -324,7 +346,7 @@ function addExpense_(req, user) {
   const hdr = headers_(sh);
   const rec = {
     Expense_ID: x.expenseId, Date: x.date, Category: x.category, Item_Name: String(x.item).trim(),
-    Amount: Number(x.amount), Remarks: x.remarks || '', Lead_By: user.name,
+    Amount: Number(x.amount), Remarks: x.remarks || '', Lead_By: String(x.leadBy || '').slice(0, 40),
   };
   sh.appendRow(hdr.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
   return { added: true };
@@ -363,6 +385,26 @@ function saveProduct_(req) {
   if (i > -1) sh.getRange(i + 2, 1, 1, row.length).setValues([row]);
   else sh.appendRow(row);
   return { saved: true };
+}
+
+function saveTemplate_(req) {
+  const t = req.template;
+  if (!t || !t.key || !String(t.name || '').trim() || !String(t.text || '').trim()) throw new Error('INVALID_TEMPLATE');
+  const rec = { Key: String(t.key), Name: String(t.name).trim(), Type: TEMPLATE_TYPES.indexOf(t.type) > -1 ? t.type : 'customer', Text: String(t.text) };
+  const sh = sheet_('Templates');
+  const hdr = headers_(sh);
+  const row = hdr.map(function (h) { return rec[h] === undefined ? '' : rec[h]; });
+  const i = columnValues_(sh, 'Key').indexOf(rec.Key);
+  if (i > -1) sh.getRange(i + 2, 1, 1, row.length).setValues([row]);
+  else sh.appendRow(row);
+  return { saved: true };
+}
+
+function deleteTemplate_(req) {
+  const sh = sheet_('Templates');
+  const keys = columnValues_(sh, 'Key');
+  for (let i = keys.length - 1; i >= 0; i--) if (keys[i] === req.key) sh.deleteRow(i + 2);
+  return { deleted: true };
 }
 
 /* ------------------------------------------------------ customers rollup */

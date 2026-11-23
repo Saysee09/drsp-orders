@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { BellRing, Crown, IndianRupee, MessageCircle, Package, Star, TrendingDown, TrendingUp } from 'lucide-react'
+import { BellRing, Crown, IndianRupee, Package, Star, TrendingDown, TrendingUp } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { getConfig } from '../lib/api'
-import { EXPENSE_CATEGORIES, addDays, daysBetween, inr, needsFeedback, nudgeText, prettyDate, todayStr, waLink } from '../lib/utils'
+import { EXPENSE_CATEGORIES, addDays, daysBetween, inr, needsFeedback, prettyDate, todayStr } from '../lib/utils'
+import { MessageButton } from '../components/Messages'
 import { FeedbackButton, PayButton } from './Orders'
 import { Badge, Card, Empty, Pill, SectionTitle, cx } from '../components/ui'
 
@@ -51,7 +51,6 @@ export default function Dashboard() {
   const { orders, data, customers } = useStore()
   const [rid, setRid] = useState('month')
   const [from, to] = range(rid)
-  const biz = getConfig().businessName
   const t = todayStr()
 
   const s = useMemo(() => {
@@ -211,14 +210,7 @@ export default function Dashboard() {
                 {daysBetween(c.lastOrder, t)} days ago · {inr(c.totalSpent)} lifetime · {c.tier}
               </div>
             </div>
-            <a
-              href={waLink(c.phone, nudgeText(c, biz))}
-              target="_blank"
-              rel="noreferrer"
-              className="flex h-10 items-center gap-1.5 rounded-xl bg-[#25D366] px-3 text-sm font-bold text-slate-950 active:bg-[#1ebe5a]"
-            >
-              <MessageCircle size={16} /> Nudge
-            </a>
+            <MessageButton phone={c.phone} name={c.name} suggested="nudge" size="sm" label="Nudge" />
           </div>
         ))}
       </Card>

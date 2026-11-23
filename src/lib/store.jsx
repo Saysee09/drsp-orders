@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, SESSION_ERRORS, applyOp, call, isDemo } from './api'
 import { buildCustomers, groupOrders } from './utils'
+import { mergeTemplates } from './templates'
 
 const Ctx = createContext(null)
 export const useStore = () => useContext(Ctx)
 
-const EMPTY = { products: [], orders: [], expenses: [] }
+const EMPTY = { products: [], orders: [], expenses: [], templates: [] }
 const load = (k, fallback) => {
   try {
     const v = JSON.parse(localStorage.getItem(k) || 'null')
@@ -21,7 +22,7 @@ const save = (k, v) => {
 }
 
 const ERROR_TEXT = {
-  NOT_ALLOWED: 'Your account is not allowed to do that.',
+  INVALID_TEMPLATE: 'Message needs a name and some text.',
   INVALID_PHONE: 'Phone number must be 10 digits starting with 6–9.',
   ORDER_NOT_FOUND: 'That order was already removed on another phone.',
   INVALID_ORDER: 'Order is missing details.',
@@ -29,7 +30,8 @@ const ERROR_TEXT = {
 }
 
 export function StoreProvider({ children }) {
-  const [auth, setAuth] = useState(() => load('drsp_auth', null)) // { session, user }
+  const [auth, setAuth] = useState(() => load('drsp_auth', null)) // { session, user: { username } }
+  const [deviceName, setDeviceNameState] = useState(() => localStorage.getItem('drsp_device_name') || '')
   const [server, setServer] = useState(() => load('drsp_cache', EMPTY))
   const [queue, setQueue] = useState(() => load('drsp_queue', []))
   const [online, setOnline] = useState(navigator.onLine)
@@ -67,9 +69,6 @@ export function StoreProvider({ children }) {
       localStorage.removeItem('drsp_cache')
       localStorage.removeItem('drsp_queue')
       localStorage.removeItem('drsp_last_sync')
-      try {
-        window.google?.accounts?.id?.disableAutoSelect()
-      } catch { /* ignore */ }
       setServer(EMPTY)
       setQueue([])
       setAuth(null)
@@ -82,7 +81,7 @@ export function StoreProvider({ children }) {
     (err) => {
       if (err instanceof ApiError) {
         if (SESSION_ERRORS.includes(err.code)) {
-          signOut(err.code === 'ACCESS_DENIED' ? 'Access Denied: Unregistered Family Account' : 'Your session expired. Please sign in again.')
+          signOut('You were signed out (password changed or login expired). Please log in again.')
           return 'session'
         }
         notify(ERROR_TEXT[err.code] || `Sheet error: ${err.code}`, 'error')
@@ -120,7 +119,7 @@ export function StoreProvider({ children }) {
       // 2. pull the latest sheet
       const data = await call('sync', { session: auth.session })
       setOnline(true)
-      setServer({ products: data.products || [], orders: data.orders || [], expenses: data.expenses || [] })
+      setServer({ products: data.products || [], orders: data.orders || [], expenses: data.expenses || [], templates: data.templates || [] })
       if (data.user)
         setAuth((a) => {
           if (!a) return a
@@ -146,6 +145,9 @@ export function StoreProvider({ children }) {
   /** Optimistic write: shows instantly, saved to the sheet in the background (or when back online). */
   const mutate = useCallback(
     (action, payload) => {
+      const name = localStorage.getItem('drsp_device_name') || ''
+      if (action === 'addOrder' && payload.order && !payload.order.leadBy) payload = { ...payload, order: { ...payload.order, leadBy: name } }
+      if (action === 'addExpense' && payload.expense && !payload.expense.leadBy) payload = { ...payload, expense: { ...payload.expense, leadBy: name } }
       const op = { id: crypto.randomUUID(), action, ...payload }
       queueRef.current = [...queueRef.current, op]
       setQueue(queueRef.current)
@@ -155,31 +157,37 @@ export function StoreProvider({ children }) {
     [sync],
   )
 
-  const login = useCallback(async (payload) => {
+  const login = useCallback(async ({ username, password, name }) => {
     setAuthError('')
     try {
-      const res = await call('login', payload)
+      const res = await call('login', { username: String(username).trim(), password })
       localStorage.removeItem('drsp_cache')
       setServer(EMPTY)
+      if (name !== undefined) setDeviceName(name)
       setAuth(res)
       return true
     } catch (err) {
-      try {
-        window.google?.accounts?.id?.disableAutoSelect()
-      } catch { /* ignore */ }
-      if (err instanceof ApiError) {
-        localStorage.clear()
+      if (err instanceof ApiError)
         setAuthError(
-          err.code === 'ACCESS_DENIED'
-            ? 'Access Denied: Unregistered Family Account'
-            : err.code === 'WRONG_CLIENT'
-              ? 'Setup issue: the Client ID in Apps Script does not match config.json.'
-              : `Sign-in failed (${err.code}).`,
+          err.code === 'WRONG_LOGIN'
+            ? 'Wrong username or password.'
+            : err.code === 'LOCKED'
+              ? 'Too many wrong tries. Please wait 15 minutes and try again.'
+              : `Login failed (${err.code}).`,
         )
-      } else setAuthError('No internet connection. Please try again.')
+      else setAuthError('No internet connection. Please try again.')
       return false
     }
   }, [])
+
+  const setDeviceName = useCallback((n) => {
+    const v = String(n || '').trim().slice(0, 30)
+    localStorage.setItem('drsp_device_name', v)
+    setDeviceNameState(v)
+  }, [])
+
+  /** For actions that must reach the sheet right now (e.g. changing the password). */
+  const callNow = useCallback((action, payload = {}) => call(action, { session: authRef.current?.session, ...payload }), [])
 
   // first load + polling + reconnect
   useEffect(() => {
@@ -207,19 +215,25 @@ export function StoreProvider({ children }) {
   const data = useMemo(() => {
     let d = server
     for (const op of queue) {
-      d = applyOp(d, op, auth?.user)
+      d = applyOp(d, op)
       if (op.action === 'addOrder') d.orders = d.orders.map((r) => (r.Order_ID === op.order.orderId ? { ...r, _pending: true } : r))
     }
     return d
-  }, [server, queue, auth?.user])
+  }, [server, queue])
 
   const orders = useMemo(() => groupOrders(data.orders), [data.orders])
   const customers = useMemo(() => buildCustomers(data.orders), [data.orders])
   const activeProducts = useMemo(() => data.products.filter((p) => (p.Active_Status || 'Active') === 'Active'), [data.products])
+  const templates = useMemo(() => mergeTemplates(data.templates), [data.templates])
+  const user = auth ? { username: auth.user?.username || '', name: deviceName || auth.user?.username || '' } : null
 
   const value = {
     auth,
-    user: auth?.user,
+    user,
+    deviceName,
+    setDeviceName,
+    callNow,
+    templates,
     demo: isDemo(),
     data,
     orders,

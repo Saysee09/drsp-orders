@@ -7,7 +7,7 @@ import { Button, Card, Empty, Field, Pill, SectionTitle, inputCls } from '../com
 const blank = () => ({ date: todayStr(), category: 'Raw Material', item: '', amount: '', remarks: '' })
 
 export default function Expenses() {
-  const { data, mutate, notify, user } = useStore()
+  const { data, mutate, notify } = useStore()
   const [f, setF] = useState(blank)
   const [touched, setTouched] = useState(false)
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
@@ -96,7 +96,7 @@ export default function Expenses() {
                 </div>
               </div>
               <div className="font-bold text-slate-900">{inr(e.Amount)}</div>
-              {user?.role === 'Admin' && (
+              {(
                 <button
                   className="grid h-9 w-9 place-items-center rounded-lg text-slate-400 active:bg-rose-50 active:text-rose-600"
                   aria-label="Delete expense"

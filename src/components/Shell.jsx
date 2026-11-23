@@ -45,20 +45,19 @@ export function Header({ kitchen, onKitchen }) {
         <button
           onClick={onKitchen}
           aria-pressed={kitchen}
+          aria-label={kitchen ? "Exit Kitchen mode" : "Kitchen mode"}
           className={cx('flex h-10 items-center gap-1.5 rounded-xl px-3 text-sm font-bold', kitchen ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-white')}
         >
           <ChefHat size={18} />
           <span className="hidden min-[440px]:inline">{kitchen ? 'Exit Kitchen' : 'Kitchen'}</span>
         </button>
-        <button onClick={() => setMenu(true)} className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-indigo-600 text-sm font-black" aria-label="Account">
-          {user?.picture ? <img src={user.picture} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : (user?.name || '?')[0]}
+        <button onClick={() => setMenu(true)} className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-indigo-600 text-sm font-black uppercase" aria-label="Account">
+          {(user?.name || '?')[0]}
         </button>
       </div>
       <Sheet open={menu} onClose={() => setMenu(false)} title="Account">
         <p className="text-lg font-bold">{user?.name}</p>
-        <p className="text-sm text-slate-500">
-          {user?.email} · {user?.role}
-        </p>
+        <p className="text-sm text-slate-500">Family login: {user?.username}</p>
         <p className="mt-3 text-sm text-slate-600">
           {queue.length ? `${queue.length} change(s) waiting to save to the sheet.` : 'Everything is saved to the Google Sheet.'}
         </p>
@@ -78,12 +77,12 @@ export function Header({ kitchen, onKitchen }) {
           variant="danger"
           className="mt-3 w-full"
           onClick={() => {
-            if (queue.length && !confirm(`${queue.length} change(s) are not saved yet and will be lost. Sign out anyway?`)) return
+            if (queue.length && !confirm(`${queue.length} change(s) are not saved yet and will be lost. Log out anyway?`)) return
             setMenu(false)
             signOut()
           }}
         >
-          <LogOut size={18} /> Sign out
+          <LogOut size={18} /> Log out
         </Button>
       </Sheet>
     </header>

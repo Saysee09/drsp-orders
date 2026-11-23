@@ -199,7 +199,6 @@ export default function Admin() {
 
   return (
     <div className="space-y-2">
-      <h1 className="text-2xl font-black text-slate-900">Catalog & Prices</h1>
       <SectionTitle>Bulk price update (CSV)</SectionTitle>
       <PriceImport />
 

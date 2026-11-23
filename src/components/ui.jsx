@@ -71,7 +71,7 @@ export function Segmented({ options, value, onChange, colors, labels = {}, size 
 
 export const PREP_COLORS = { Pending: 'bg-amber-500 text-slate-950', 'In Batch': 'bg-orange-600 text-white', Packed: 'bg-emerald-600 text-white' }
 export const PAY_COLORS = { Unpaid: 'bg-rose-600 text-white', UPI: 'bg-emerald-600 text-white', Cash: 'bg-emerald-700 text-white' }
-export const DEL_COLORS = { Pending: 'bg-slate-700 text-white', Shipped: 'bg-indigo-600 text-white', Delivered: 'bg-emerald-600 text-white' }
+export const DEL_COLORS = { Pending: 'bg-slate-700 text-white', 'Out for Delivery': 'bg-indigo-600 text-white', Delivered: 'bg-emerald-600 text-white' }
 
 export function Pill({ active, children, ...rest }) {
   return (

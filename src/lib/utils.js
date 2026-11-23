@@ -1,6 +1,20 @@
 export const PREP = ['Pending', 'In Batch', 'Packed']
 export const PAY = ['Unpaid', 'UPI', 'Cash']
-export const DELIVERY = ['Pending', 'Shipped', 'Delivered']
+export const DELIVERY = ['Pending', 'Out for Delivery', 'Delivered']
+
+/** One simple order journey. Each step sets both sheet columns (Prep_Status + Delivery_Status). */
+export const STAGES = [
+  { id: 'new', label: 'New', prep: 'Pending', delivery: 'Pending' },
+  { id: 'making', label: 'Making', prep: 'In Batch', delivery: 'Pending' },
+  { id: 'packed', label: 'Packed', prep: 'Packed', delivery: 'Pending' },
+  { id: 'way', label: 'On the way', prep: 'Packed', delivery: 'Out for Delivery' },
+  { id: 'done', label: 'Delivered', prep: 'Packed', delivery: 'Delivered' },
+]
+export function stageOf(o) {
+  if (o.delivery === 'Delivered') return 'done'
+  if (o.delivery === 'Out for Delivery') return 'way'
+  return o.prep === 'Packed' ? 'packed' : o.prep === 'In Batch' ? 'making' : 'new'
+}
 export const EXPENSE_CATEGORIES = ['Raw Material', 'Masala & Oil', 'Packaging', 'Equipment', 'Travel', 'Other']
 export const PAY_LABEL = { Unpaid: 'Unpaid', UPI: 'Paid via UPI', Cash: 'Cash' }
 
@@ -61,7 +75,7 @@ export function groupOrders(rows) {
         leadBy: r.Lead_By || '',
         prep: r.Prep_Status || 'Pending',
         payment: r.Payment_Status || 'Unpaid',
-        delivery: r.Delivery_Status || 'Pending',
+        delivery: r.Delivery_Status === 'Shipped' ? 'Out for Delivery' : r.Delivery_Status || 'Pending',
         address: r.Address || '',
         notes: r.Notes || '',
         dueDate: String(r.Due_Date || ''),
@@ -136,25 +150,6 @@ export function waLink(phone, text) {
   return isValidPhone(p) ? `https://wa.me/91${p}?text=${t}` : `https://wa.me/?text=${t}`
 }
 
-export function receiptText(o, businessName = 'DRSP PICKLES') {
-  const lines = [
-    `*ORDER CONFIRMATION — ${businessName.toUpperCase()}* 📦`,
-    '',
-    `*Order ID:* ${o.orderId}`,
-    `*Customer Name:* ${o.customerName}`,
-    '',
-    '*Items Ordered:*',
-    ...o.items.map((i) => `• ${i.name} x ${i.qty} — ${inr(i.sold)}${i.discount ? ` (incl. ${inr(i.discount)} off)` : ''}`),
-  ]
-  if (o.deliveryCharge) lines.push(`• Delivery — ${inr(o.deliveryCharge)}`)
-  lines.push('', `*Total:* ${inr(o.total)}`)
-  lines.push(`*Payment Status:* ${PAY_LABEL[o.payment] || o.payment}`)
-  lines.push(`*Delivery Status:* ${o.delivery}`)
-  if (o.dueDate) lines.push(`*Expected by:* ${prettyDate(o.dueDate)}`)
-  lines.push('', 'Thank you for supporting our family business! 🙏')
-  return lines.join('\n')
-}
-
 export function menuText(products, businessName = 'DRSP Homemade Pickles') {
   const active = products.filter((p) => (p.Active_Status || 'Active') === 'Active')
   const byCat = new Map()
@@ -182,17 +177,6 @@ export function menuText(products, businessName = 'DRSP Homemade Pickles') {
   }
   lines.push('', '📞 Reply to this message with your selection to place an order!')
   return lines.join('\n')
-}
-
-export function nudgeText(c, businessName = 'DRSP Homemade Pickles') {
-  const first = String(c.name || '').split(' ')[0] || 'there'
-  return [
-    `Namaste ${first}! 🙏`,
-    '',
-    `It's been a while since your last order from *${businessName}*.${c.favorite ? ` Running low on your favourite *${c.favorite}*?` : ''}`,
-    '',
-    'Fresh batches are being made this week. Just reply here and we will keep a jar ready for you! 🏺',
-  ].join('\n')
 }
 
 /* --------------------------------------------------------------------- CSV */
@@ -242,46 +226,9 @@ export function upiUri({ upiId, upiName }, amount, note) {
   return `upi://pay?${q.toString().replace(/\+/g, '%20').replace(/%40/g, '@')}`
 }
 
-export function paymentText(o, cfg) {
-  const biz = cfg.businessName || 'DRSP Homemade Pickles'
-  return [
-    `*PAYMENT REQUEST — ${biz.toUpperCase()}* 🧾`,
-    '',
-    `Namaste ${String(o.customerName).split(' ')[0]}! 🙏`,
-    '',
-    `*Order ID:* ${o.orderId}`,
-    ...o.items.map((i) => `• ${i.name} x ${i.qty} — ${inr(i.sold)}`),
-    ...(o.deliveryCharge ? [`• Delivery — ${inr(o.deliveryCharge)}`] : []),
-    `*Amount to pay:* ${inr(o.total)}`,
-    '',
-    `*Pay by UPI to:* ${cfg.upiId}${cfg.upiName ? ` (${cfg.upiName})` : ''}`,
-    'GPay / PhonePe / Paytm — any UPI app works.',
-    '',
-    `Tap to pay: ${upiUri(cfg, o.total, o.orderId)}`,
-    '',
-    'Please send a screenshot here once paid. Thank you! 🏺',
-  ].join('\n')
-}
-
 /** Delivered at least 1 day ago, feedback not yet asked, and not older than 21 days. */
 export function needsFeedback(o, today = todayStr()) {
   if (o.delivery !== 'Delivered' || o.feedbackSent || !o.deliveredAt) return false
   const d = daysBetween(o.deliveredAt, today)
   return d >= 1 && d <= 21
-}
-
-export function feedbackText(o, cfg) {
-  const biz = cfg.businessName || 'DRSP Homemade Pickles'
-  const first = String(o.customerName).split(' ')[0] || 'there'
-  const items = [...new Set(o.items.map((i) => String(i.name).split(' - ')[0]))].join(', ')
-  const lines = [
-    `Namaste ${first}! 🙏`,
-    '',
-    `Hope you are enjoying your *${items}* from *${biz}*!`,
-    '',
-    'How did you like it? Please reply with a rating ⭐ 1–5 and a line about the taste, spice and freshness. Your feedback helps our small family kitchen a lot.',
-  ]
-  if (cfg.reviewLink) lines.push('', `If you loved it, a quick review here would mean the world to us: ${cfg.reviewLink}`)
-  lines.push('', 'Thank you for supporting us! 🏺')
-  return lines.join('\n')
 }

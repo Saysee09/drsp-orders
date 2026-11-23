@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, Crown, Minus, Plus, Send, Share2, ShoppingBasket, Trash2, UserCheck } from 'lucide-react'
+import { CheckCircle2, Crown, Minus, Plus, ShoppingBasket, Trash2, UserCheck } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { getConfig } from '../lib/api'
-import { PAY, PAY_LABEL, cleanPhone, groupOrders, inr, isValidPhone, makeId, menuText, prettyDate, receiptText, todayStr, waLink } from '../lib/utils'
-import { Badge, Button, Card, Field, PAY_COLORS, Segmented, Sheet, inputCls } from '../components/ui'
+import { PAY, PAY_LABEL, cleanPhone, groupOrders, inr, isValidPhone, makeId, prettyDate, todayStr } from '../lib/utils'
+import { Badge, Button, Card, Field, PAY_COLORS, Segmented, Sheet, cx, inputCls } from '../components/ui'
+import { MessageButton, useMessage } from '../components/Messages'
 import { PayButton } from './Orders'
 
 const blank = () => ({ phone: '', name: '', address: '', items: [], deliveryCharge: '', notes: '', dueDate: '', payment: 'Unpaid' })
@@ -28,14 +28,12 @@ function Stepper({ value, onChange, min = 1 }) {
 }
 
 export default function NewOrder() {
-  const { activeProducts, customers, mutate, user, notify } = useStore()
+  const { activeProducts, customers, mutate, user, templates } = useStore()
   const [f, setF] = useState(blank)
-  const [pick, setPick] = useState('')
-  const [pickQty, setPickQty] = useState(1)
   const [touched, setTouched] = useState(false)
   const [saved, setSaved] = useState(null)
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
-  const biz = getConfig().businessName
+  const build = useMessage()
 
   const phone = cleanPhone(f.phone)
   const phoneOk = isValidPhone(phone)
@@ -56,17 +54,24 @@ export default function NewOrder() {
     })
   }
 
+  // Category → pickle → sizes, e.g. Veg Pickle → Mango → [250gm, 500gm, 1000gm]
   const byCat = useMemo(() => {
     const m = new Map()
     for (const p of activeProducts) {
       const c = p.Category || 'Other'
-      if (!m.has(c)) m.set(c, [])
-      m.get(c).push(p)
+      if (!m.has(c)) m.set(c, new Map())
+      const name = String(p.Product_Name)
+      const cut = name.lastIndexOf(' - ')
+      const base = cut > -1 ? name.slice(0, cut) : name
+      const size = cut > -1 ? name.slice(cut + 3) : ''
+      if (!m.get(c).has(base)) m.get(c).set(base, [])
+      m.get(c).get(base).push({ ...p, size })
     }
     return m
   }, [activeProducts])
+  const inCart = (code) => f.items.find((x) => x.code === code)?.qty || 0
 
-  const addItem = (code, qty = pickQty) => {
+  const addItem = (code, qty = 1) => {
     const p = activeProducts.find((x) => x.Product_Code === code)
     if (!p) return
     setF((s) => {
@@ -74,8 +79,6 @@ export default function NewOrder() {
       if (i > -1) return { ...s, items: s.items.map((x, j) => (j === i ? { ...x, qty: x.qty + qty } : x)) }
       return { ...s, items: [...s.items, { code, name: p.Product_Name, mrp: Number(p.MRP), qty, discount: 0 }] }
     })
-    setPick('')
-    setPickQty(1)
   }
   const updItem = (i, patch) => setF((s) => ({ ...s, items: s.items.map((x, j) => (j === i ? { ...x, ...patch } : x)) }))
   const delItem = (i) => setF((s) => ({ ...s, items: s.items.filter((_, j) => j !== i) }))
@@ -113,8 +116,9 @@ export default function NewOrder() {
     mutate('addOrder', { order })
     const rows = order.items.map((it, idx) => ({
       Order_ID: order.orderId, Date: order.date, Customer_Name: order.customerName, Customer_Phone: phone, Product_Code: it.code,
-      Product_Name: it.name, QTY: it.qty, MRP: it.mrp, Discount: it.discount, Sold_Amount: it.qty * it.mrp - it.discount, Lead_By: user?.name,
+      Product_Name: it.name, QTY: it.qty, MRP: it.mrp, Discount: it.discount, Sold_Amount: it.qty * it.mrp - it.discount, Lead_By: user?.name || '',
       Prep_Status: 'Pending', Payment_Status: order.payment, Delivery_Status: 'Pending', Delivery_Charge: idx === 0 ? delivery : 0, Due_Date: order.dueDate,
+      Address: order.address,
     }))
     setSaved(groupOrders(rows)[0])
     setF(blank())
@@ -127,11 +131,7 @@ export default function NewOrder() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-black text-slate-900">New Order</h1>
-        <a href={waLink(phoneOk ? phone : '', menuText(activeProducts, biz))} target="_blank" rel="noreferrer">
-          <Button variant="whatsapp" size="sm">
-            <Share2 size={16} /> Send Menu
-          </Button>
-        </a>
+        <MessageButton phone={phoneOk ? phone : ''} name={f.name || known?.name} suggested="menu" size="sm" label="Send menu" />
       </div>
 
       <Card className="space-y-3 p-4">
@@ -179,29 +179,42 @@ export default function NewOrder() {
       </Card>
 
       <Card className="space-y-3 p-4">
-        <div className="text-sm font-semibold text-slate-700">Add products</div>
-        <select className={inputCls + ' font-semibold'} value={pick} onChange={(e) => setPick(e.target.value)}>
-          <option value="">Choose a pickle…</option>
-          {[...byCat.entries()].map(([cat, list]) => (
-            <optgroup key={cat} label={cat}>
-              {list.map((p) => (
-                <option key={p.Product_Code} value={p.Product_Code}>
-                  {p.Product_Name} — {inr(p.MRP)}
-                </option>
+        <div className="text-sm font-semibold text-slate-700">Tap to add · tap again for more</div>
+        {[...byCat.entries()].map(([cat, groups]) => (
+          <div key={cat}>
+            <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">{cat}</div>
+            <div className="space-y-1.5">
+              {[...groups.entries()].map(([base, sizes]) => (
+                <div key={base} className="flex flex-wrap items-center gap-1.5">
+                  <span className="w-full text-sm font-bold text-slate-900 min-[420px]:w-28 min-[420px]:shrink-0">{base}</span>
+                  {sizes.map((p) => {
+                    const n = inCart(p.Product_Code)
+                    return (
+                      <button
+                        key={p.Product_Code}
+                        type="button"
+                        onClick={() => addItem(p.Product_Code)}
+                        className={cx(
+                          'relative flex h-12 min-w-[5.5rem] flex-col items-center justify-center rounded-xl px-3 text-sm font-bold leading-tight ring-1 transition',
+                          n ? 'bg-indigo-600 text-white ring-indigo-600' : 'bg-white text-slate-800 ring-slate-300 active:bg-slate-100',
+                        )}
+                      >
+                        <span>{p.size || 'Add'}</span>
+                        <span className={cx('text-xs font-semibold', n ? 'text-indigo-100' : 'text-slate-500')}>{inr(p.MRP)}</span>
+                        {n > 0 && <span className="absolute -right-1.5 -top-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-amber-400 px-1 text-xs font-black text-slate-950">{n}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
               ))}
-            </optgroup>
-          ))}
-        </select>
-        <div className="flex gap-2">
-          <Stepper value={pickQty} onChange={setPickQty} />
-          <Button className="flex-1" disabled={!pick} onClick={() => addItem(pick)}>
-            <Plus size={18} /> Add to order
-          </Button>
-        </div>
+            </div>
+          </div>
+        ))}
         {err('items') && <p className="text-sm font-medium text-rose-600">{err('items')}</p>}
 
         {f.items.length > 0 && (
           <div className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
+            <div className="bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">In this order</div>
             {f.items.map((x, i) => (
               <div key={x.code} className="space-y-2 p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -277,7 +290,7 @@ export default function NewOrder() {
           </div>
         </div>
         <Button size="lg" className="w-full" onClick={submit}>
-          <ShoppingBasket size={20} /> Save Order to Sheet
+          <ShoppingBasket size={20} /> Save order
         </Button>
       </Card>
 
@@ -293,12 +306,10 @@ export default function NewOrder() {
                 </div>
               </div>
             </div>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 font-sans text-sm text-slate-700">{receiptText(saved, biz)}</pre>
-            <a href={waLink(saved.phone, receiptText(saved, biz))} target="_blank" rel="noreferrer" className="block">
-              <Button variant="whatsapp" size="lg" className="w-full">
-                <Send size={20} /> Send receipt on WhatsApp
-              </Button>
-            </a>
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 font-sans text-sm text-slate-700">
+              {build(templates.find((t) => t.key === 'order_confirm'), { order: saved })}
+            </pre>
+            <MessageButton order={saved} suggested="order_confirm" size="lg" className="w-full" label="Send confirmation on WhatsApp" />
             <PayButton o={saved} size="lg" className="block w-full" />
             <Button variant="ghost" className="w-full" onClick={() => setSaved(null)}>
               Take next order

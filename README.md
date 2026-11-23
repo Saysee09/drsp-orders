@@ -1,6 +1,6 @@
 # DRSP Orders 🏺
 
-Mobile-first PWA for the DRSP Homemade Pickles family business: quick phone-order entry, a dispatch grid, Mother's (Kitchen) Mode, expenses, bulk CSV price updates, and profit & customer analytics. Everything is stored in **one Google Sheet that you own**. There are no hosting or database costs.
+Mobile-first PWA for the DRSP Homemade Pickles family business: quick phone-order entry, one-tap order tracking up to delivery, WhatsApp menu & message templates, Kitchen Mode, expenses, bulk CSV price updates, and profit & customer analytics. Everything is stored in **one Google Sheet that you own**. There are no hosting or database costs.
 
 **Live app:** https://saysee09.github.io/drsp-orders/
 
@@ -12,112 +12,95 @@ Until the Google Sheet is connected, the app runs in **Demo mode** with sample d
 
 ```
 Family phones (PWA on GitHub Pages)
-        │  Google Sign-In (ID token)
+        │  one family username + password
         ▼
-Apps Script Web App  ── verifies token + checks the "Users" tab (allowlist, roles)
+Apps Script Web App  ── checks the password, keeps 90-day logins
         │
         ▼
-Master Google Sheet: Orders · Products_Master · Expenses · Customers · Users
+Master Google Sheet: Orders · Products_Master · Expenses · Customers · Templates
 ```
 
-- **Security is enforced on Google's side.** The Apps Script verifies every sign-in with Google and only lets in emails listed in the `Users` tab. Delete someone's row and they are locked out on their next action. Sessions last 30 days.
-- **Offline-safe.** Every change appears on screen instantly and is queued on the phone. If the internet drops, the queue saves to the sheet automatically when the phone is back online. The header shows `Live`, `n to save` or `Offline`.
+- **One login for the whole family.** No Google accounts or Google Cloud needed. Wrong passwords are counted (8 misses → 15-minute pause). Changing the password in the app logs out every other phone.
+- **Offline-safe.** Every change appears on screen instantly and is queued on the phone. It saves to the sheet when the phone is back online. The header shows `Live`, `n to save` or `Offline`.
 - **Auto-updates.** Every push to `main` redeploys. Open phones then show *"App Update Available — Tap to Install Now"*.
-
-### Roles (set in the `Users` tab)
-
-| Role | Who | Can use |
-|---|---|---|
-| `Admin` | Sasi | Everything, including Catalog/CSV prices and deleting expenses |
-| `Ops` | Brother | New order, Orders (incl. delete), Expenses, Profit dashboard |
-| `Kitchen` | Mother | Opens straight into Kitchen Mode; can also take orders |
-| `Helper` | Helper | Orders screen: status updates only |
 
 ---
 
-## One-time setup (≈15 minutes)
+## One-time setup (≈10 minutes)
 
 ### 1. Create the Google Sheet + backend
 
 1. Create a new Google Sheet named **DRSP Orders – Master**.
 2. **Extensions → Apps Script**. Delete the sample code and paste all of [`apps-script/Code.gs`](apps-script/Code.gs).
-3. Leave `GOOGLE_CLIENT_ID` as-is for now (you'll fill it in at step 2). Click **Save**.
-4. Choose the `setup` function in the toolbar → **Run** → approve the permissions.
-   This creates all the tabs, loads the 14-product May catalog, and adds you to `Users` as **Sasi / Admin**.
-5. In the `Users` tab, add the family members:
+3. At the top, set the family login: `APP_USERNAME` (e.g. `drsp`) and `APP_PASSWORD` (pick a strong one). Click **Save**.
+4. Choose the `setup` function in the toolbar → **Run** → approve the permissions. This creates all the tabs and loads the 14-product catalog.
 
-   | Email | Name | Role |
-   |---|---|---|
-   | brother@gmail.com | Brother | Ops |
-   | mother@gmail.com | Mother | Kitchen |
+### 2. Deploy the backend
 
-### 2. Google Sign-In Client ID
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a project **DRSP-Orders-App**.
-2. **APIs & Services → OAuth consent screen**: External, app name *DRSP Orders*, your email. Add the family Gmails under **Test users**.
-3. **Credentials → Create credentials → OAuth client ID → Web application**
-   - Authorized JavaScript origins: `https://saysee09.github.io` and `http://localhost:5173`
-4. Copy the **Client ID**.
-5. Back in Apps Script, paste it into `const GOOGLE_CLIENT_ID = '...'` and **Save**.
-
-> You do **not** need to enable the Sheets API. The Apps Script reads the sheet directly.
-
-### 3. Deploy the backend
-
-In Apps Script: **Deploy → New deployment → Web app**
+**Deploy → New deployment → Web app**
 - Execute as: **Me**
-- Who has access: **Anyone** (the script itself blocks anyone not in `Users`)
+- Who has access: **Anyone** (the script itself checks the password)
 
 Copy the **Web app URL** (ends in `/exec`).
 
-> After any later change to `Code.gs`: **Deploy → Manage deployments → Edit → Version: New version**. This keeps the same URL.
+> After any later change to `Code.gs`: **Deploy → Manage deployments → Edit → Version: New version**. The URL stays the same.
 
-### 4. Connect the app
+### 3. Connect the app
 
 Edit [`public/config.json`](public/config.json) on GitHub (pencil icon) and commit:
 
 ```json
 {
   "apiUrl": "https://script.google.com/macros/s/XXXX/exec",
-  "googleClientId": "1234-abc.apps.googleusercontent.com",
   "businessName": "DRSP Homemade Pickles",
-  "businessPhone": "",
+  "businessPhone": "9XXXXXXXXX",
   "upiId": "yourname@okaxis",
   "upiName": "DRSP Pickles",
-  "reviewLink": ""
+  "reviewLink": "",
+  "menuUrl": ""
 }
 ```
 
-- `upiId` – the UPI ID that customers pay to (used by **Request ₹ via UPI**).
-- `reviewLink` – optional. Add a Google review or website link later and the feedback message will include it.
+- `upiId` – the UPI ID customers pay to.
+- `businessPhone` – shows an **Order on WhatsApp** button on the customer menu page.
+- `reviewLink` – optional; feedback messages include it when set.
+- `menuUrl` – leave empty to use the built-in menu page.
 
-The site redeploys in about a minute. Demo mode switches off and the Google Sign-In button appears.
+### 4. Add the menu photo & PDF
+
+Upload **`menu.jpg`** and **`menu.pdf`** into [`public/menu/`](public/menu/) (GitHub → *Add file → Upload files*). Customers get the link `https://saysee09.github.io/drsp-orders/menu/`, which shows the photo (WhatsApp shows it as the link preview) and a PDF download.
 
 ### 5. Install on phones
 
-- **Android (Chrome):** open the link → ⋮ → *Install app* / *Add to Home screen*
+- **Android (Chrome):** open the link → ⋮ → *Install app*
 - **iPhone (Safari):** open the link → Share → *Add to Home Screen*
+
+Log in with the family username + password. Optionally type who uses the phone (shown on orders as "by …"). On Amma's phone, tap the chef-hat once — Kitchen Mode is remembered on that phone.
+
+**Forgot the password?** In Apps Script, change `APP_PASSWORD`, Save, run `resetPassword` once.
 
 ---
 
 ## Using it
 
-- **New** – type the 10-digit number. A returning customer's name, address, tier and *"+ Add usual"* fill in automatically. Add several products (each with its own discount), then delivery charge, deliver-by date, notes and payment. **Save Order to Sheet** → **Send receipt on WhatsApp**. **Send Menu** builds the WhatsApp menu from the active products.
-- **Orders** – search plus filters (All, Pending Prep, Unpaid, Ready for Delivery, Due ≤ Today). One tap changes Prep / Payment / Delivery for the whole order, with **Undo**.
-- **Kitchen** (chef-hat button) – big text, *To make now* totals, cards sorted by due date, giant **START PREP** / **MARK PACKED** buttons with Undo. No deleting or money.
-- **Request UPI payment** – unpaid orders get a button that opens WhatsApp with the amount, your UPI ID and a tap-to-pay `upi://` link. It's also on the "Order saved" screen and in *Payments to collect* on the Profit page.
-- **Ask for feedback** – the day after an order is marked *Delivered*, it shows an **Ask for Feedback** button (Orders → *Ask Feedback* filter, and the *Feedback to ask* list on Profit). Tapping it opens WhatsApp with a 1–5 star request and marks the order (`Feedback_Sent = Yes`) so nobody asks twice. Orders stop showing after 21 days.
-- **Expenses** – category pills, amount, date, vendor; monthly totals by category.
-- **Profit** – revenue, expenses, net profit, margin %, AOV, unpaid to collect, product ranking, top customers, and the 30-day **reorder nudge** list with WhatsApp buttons.
-- **Catalog** (Admin) – CSV price upload with a side-by-side diff before anything is written. You can also add, edit or deactivate products and download the current price list as a CSV. Past orders never change price.
+- **New order** – type the number (returning customers fill in automatically, with *"+ Add usual"*). Tap a pickle size to add it, tap again for more. Delivery charge, deliver-by date, notes, payment. **Save order** → **Send confirmation on WhatsApp**.
+- **Orders** – one row of steps per order: **New → Making → Packed → On the way → Delivered**, plus **Unpaid / Paid UPI / Paid cash**. Every tap has **Undo**. When an order is *On the way*, a button sends the "out for delivery" message. Filters: Not delivered (default), To make, Packed, On the way, Unpaid, Ask feedback, All.
+- **Send** – type any customer's number → **Send menu on WhatsApp** (opens their chat with the menu link), or **Share photo / Share PDF** to attach the actual file. Other messages (reorder reminder, your own offers) are listed below.
+- **Money** – Profit dashboard and Expenses.
+- **More** – **Messages** (edit any WhatsApp message, add your own; changes reach every phone), Catalog & prices (CSV update with diff), menu file status, username & password, this phone's name.
+- **Kitchen** (chef-hat) – big text, *To make now* totals, giant **START PREP / MARK PACKED** buttons.
 
-WhatsApp uses official `wa.me` links only. The app opens WhatsApp with the message pre-filled, and you press Send, so there is no ban risk.
+WhatsApp uses official `wa.me` links only: the app opens WhatsApp with the message ready and you press Send, so there is no ban risk. (WhatsApp does not let any app attach a file to a specific number, so for the actual photo/PDF you pick the chat in the share menu.)
+
+### Message placeholders
+Messages can use `{first_name}`, `{name}`, `{business}`, `{menu_link}`, `{menu_text}`, `{order_id}`, `{items}`, `{items_short}`, `{total}`, `{amount_due}`, `{payment_status}`, `{payment_line}`, `{upi_id}`, `{upi_link}`, `{due_date}`, `{address}`, `{favorite}`, `{review_link}`. A line whose placeholder is empty is left out automatically.
 
 ### Sheet notes
-- `Delivered_At` is filled in automatically when an order is marked Delivered. `Feedback_Sent` becomes `Yes` once feedback has been asked. If your sheet was set up before these columns existed, run `setup` again and they'll be added at the end.
-- `Orders` has one row per item; items in the same order share an `Order_ID`. Delivery charge is stored on the order's first row.
-- `Customers` is rebuilt automatically after each order (Total_Orders counts distinct orders). Tiers: VIP > ₹5,000, Regular > ₹2,000, otherwise New.
-- Don't rename the header row. Adding your own extra columns at the end is fine.
+- `Delivery_Status` is `Pending`, `Out for Delivery` or `Delivered` (old `Shipped` values are read as Out for Delivery).
+- `Orders` has one row per item; items in the same order share an `Order_ID`. Delivery charge is on the first row.
+- `Customers` is rebuilt after each order. Tiers: VIP > ₹5,000, Regular > ₹2,000, otherwise New.
+- `Templates` only holds messages you changed or added; the rest use the built-in wording.
+- Don't rename the header row. Extra columns at the end are fine. Re-run `setup` any time to add new columns.
 
 ---
 
@@ -129,4 +112,4 @@ npm run dev        # http://localhost:5173/drsp-orders/
 npm run build
 ```
 
-Stack: React 19 + Vite, Tailwind CSS 4, lucide-react, vite-plugin-pwa, Google Identity Services, Google Apps Script.
+Stack: React 19 + Vite, Tailwind CSS 4, lucide-react, vite-plugin-pwa, Google Apps Script.

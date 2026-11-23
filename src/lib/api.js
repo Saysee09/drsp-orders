@@ -1,6 +1,6 @@
 import { addDays, todayStr, makeId } from './utils'
 
-let config = { apiUrl: '', googleClientId: '', businessName: 'DRSP Homemade Pickles', businessPhone: '', upiId: '', upiName: '', reviewLink: '' }
+let config = { apiUrl: '', businessName: 'DRSP Homemade Pickles', businessPhone: '', upiId: '', upiName: '', reviewLink: '', menuUrl: '' }
 
 export async function loadConfig() {
   try {
@@ -29,7 +29,7 @@ export class ApiError extends Error {
     this.code = code
   }
 }
-export const SESSION_ERRORS = ['NO_SESSION', 'SESSION_EXPIRED', 'ACCESS_DENIED']
+export const SESSION_ERRORS = ['NO_SESSION', 'SESSION_EXPIRED']
 
 /** Network failures throw TypeError (retry later); server refusals throw ApiError. */
 export async function call(action, payload = {}) {
@@ -54,7 +54,7 @@ export async function call(action, payload = {}) {
 /* ------------------------------------------------- shared optimistic logic */
 
 /** Applies a write to a local data snapshot (used for instant UI and for demo mode). */
-export function applyOp(data, op, user) {
+export function applyOp(data, op) {
   const d = { ...data }
   const now = new Date().toISOString()
   switch (op.action) {
@@ -72,7 +72,7 @@ export function applyOp(data, op, user) {
         MRP: it.mrp,
         Discount: it.discount || 0,
         Sold_Amount: it.qty * it.mrp - (it.discount || 0),
-        Lead_By: user?.name || '',
+        Lead_By: o.leadBy || '',
         Prep_Status: o.prep || 'Pending',
         Payment_Status: o.payment || 'Unpaid',
         Delivery_Status: o.delivery || 'Pending',
@@ -88,6 +88,7 @@ export function applyOp(data, op, user) {
     case 'updateOrder': {
       const fields = { ...op.fields }
       if (fields.Delivery_Status === 'Delivered') fields.Delivered_At = op.deliveredAt || todayStr()
+      if (fields.Delivery_Status && fields.Delivery_Status !== 'Delivered') fields.Delivered_At = ''
       d.orders = d.orders.map((r) => (r.Order_ID === op.orderId ? { ...r, ...fields, Updated_At: now } : r))
       return d
     }
@@ -99,7 +100,7 @@ export function applyOp(data, op, user) {
       if (d.expenses.some((e) => e.Expense_ID === x.expenseId)) return d
       d.expenses = [
         ...d.expenses,
-        { Expense_ID: x.expenseId, Date: x.date, Category: x.category, Item_Name: x.item, Amount: Number(x.amount), Remarks: x.remarks || '', Lead_By: user?.name || '' },
+        { Expense_ID: x.expenseId, Date: x.date, Category: x.category, Item_Name: x.item, Amount: Number(x.amount), Remarks: x.remarks || '', Lead_By: x.leadBy || '' },
       ]
       return d
     }
@@ -118,6 +119,16 @@ export function applyOp(data, op, user) {
       d.products = exists ? d.products.map((x) => (x.Product_Code === p.code ? row : x)) : [...d.products, row]
       return d
     }
+    case 'saveTemplate': {
+      const t = op.template
+      const row = { Key: t.key, Name: t.name, Type: t.type, Text: t.text }
+      const list = d.templates || []
+      d.templates = list.some((x) => x.Key === t.key) ? list.map((x) => (x.Key === t.key ? row : x)) : [...list, row]
+      return d
+    }
+    case 'deleteTemplate':
+      d.templates = (d.templates || []).filter((x) => x.Key !== op.key)
+      return d
     default:
       return d
   }
@@ -125,12 +136,8 @@ export function applyOp(data, op, user) {
 
 /* --------------------------------------------------------------- demo mode */
 
-export const DEMO_USERS = [
-  { email: 'sasi@demo', name: 'Sasi', role: 'Admin' },
-  { email: 'brother@demo', name: 'Brother', role: 'Ops' },
-  { email: 'mother@demo', name: 'Mother', role: 'Kitchen' },
-  { email: 'helper@demo', name: 'Helper', role: 'Helper' },
-]
+/** Demo login (only when config.json has no apiUrl). */
+export const DEMO_LOGIN = { username: 'drsp', password: 'demo' }
 
 const SEED_PRODUCTS = [
   ['MNG-250', 'Mango - 250gm', 249, 'Veg Pickle'],
@@ -166,13 +173,13 @@ function seedDemo() {
     [-35, 0, [['MNG-500', 3]], 'Delivered', 'UPI', 'Packed'],
     [-20, 3, [['MTN-BL-100', 2], ['PWD-CHK-100', 2]], 'Delivered', 'Cash', 'Packed'],
     [-12, 4, [['CMB-CHK-PRW-250', 1]], 'Delivered', 'UPI', 'Packed'],
-    [-6, 1, [['CHK-BL-500', 2]], 'Shipped', 'UPI', 'Packed'],
+    [-6, 1, [['CHK-BL-500', 2]], 'Out for Delivery', 'UPI', 'Packed'],
     [-3, 5, [['MNG-250', 4], ['PRW-100', 2]], 'Pending', 'Unpaid', 'Packed'],
     [-1, 2, [['FSH-250', 2]], 'Pending', 'Unpaid', 'In Batch'],
     [0, 4, [['CHK-BL-250', 1], ['MNG-500', 1]], 'Pending', 'UPI', 'Pending'],
     [0, 3, [['PRW-500', 1]], 'Pending', 'Unpaid', 'Pending'],
   ]
-  let data = { products: SEED_PRODUCTS, orders: [], expenses: [] }
+  let data = { products: SEED_PRODUCTS, orders: [], expenses: [], templates: [] }
   plan.forEach(([day, ci, items, del, pay, prep], n) => {
     const date = addDays(t, day)
     const [name, phone, address] = cust[ci]
@@ -189,9 +196,9 @@ function seedDemo() {
           }),
           deliveryCharge: n % 3 === 0 ? 60 : 0, prep, payment: pay, delivery: del,
           notes: n === 9 ? 'Less spicy please' : '', dueDate: day >= -1 ? addDays(t, day + 3) : '',
+          leadBy: ['Sasi', 'Amma'][n % 2],
         },
       },
-      { name: ['Sasi', 'Brother'][n % 2] },
     )
   })
   const exp = [
@@ -202,7 +209,7 @@ function seedDemo() {
   ]
   exp.forEach(([day, cat, item, amt], n) => {
     const date = addDays(t, day)
-    data = applyOp(data, { action: 'addExpense', expense: { expenseId: `EXP-${date.replace(/-/g, '')}-${100 + n}`, date, category: cat, item, amount: amt } }, { name: 'Sasi' })
+    data = applyOp(data, { action: 'addExpense', expense: { expenseId: `EXP-${date.replace(/-/g, '')}-${100 + n}`, date, category: cat, item, amount: amt, leadBy: 'Sasi' } })
   })
   // delivered demo orders: pretend they were delivered 2 days after ordering
   data.orders = data.orders.map((r) =>
@@ -214,34 +221,26 @@ function seedDemo() {
 function demoDb() {
   try {
     const db = JSON.parse(localStorage.getItem('drsp_demo_db') || 'null')
-    if (db) return db
+    if (db) return { templates: [], ...db }
   } catch { /* ignore */ }
   const db = seedDemo()
   localStorage.setItem('drsp_demo_db', JSON.stringify(db))
   return db
 }
 
-const DEMO_PERMS = {
-  addOrder: ['Admin', 'Ops', 'Kitchen'],
-  updateOrder: ['Admin', 'Ops', 'Kitchen', 'Helper'],
-  deleteOrder: ['Admin', 'Ops'],
-  addExpense: ['Admin', 'Ops'],
-  deleteExpense: ['Admin'],
-  updatePrices: ['Admin'],
-  saveProduct: ['Admin'],
-}
-
 async function demoCall(action, payload) {
   await new Promise((r) => setTimeout(r, 250))
-  if (action === 'login') return payload.demoUser ? { session: 'demo:' + payload.demoUser.email, user: payload.demoUser } : null
-  const email = String(payload.session || '').replace('demo:', '')
-  const user = DEMO_USERS.find((u) => u.email === email)
-  if (!user) throw new ApiError('SESSION_EXPIRED')
+  if (action === 'login') {
+    const ok = String(payload.username || '').trim().toLowerCase() === DEMO_LOGIN.username && payload.password === DEMO_LOGIN.password
+    if (!ok) throw new ApiError('WRONG_LOGIN')
+    return { session: 'demo:session', user: { username: DEMO_LOGIN.username } }
+  }
+  if (payload.session !== 'demo:session') throw new ApiError('SESSION_EXPIRED')
   if (action === 'logout') return null
+  if (action === 'changePassword') throw new ApiError('DEMO_ONLY')
   const db = demoDb()
-  if (action === 'sync') return { ...db, expenses: ['Admin', 'Ops'].includes(user.role) ? db.expenses : [], user, serverTime: new Date().toISOString() }
-  if (!DEMO_PERMS[action]?.includes(user.role)) throw new ApiError('NOT_ALLOWED')
-  const next = applyOp(db, { action, ...payload }, user)
+  if (action === 'sync') return { ...db, user: { username: DEMO_LOGIN.username }, serverTime: new Date().toISOString() }
+  const next = applyOp(db, { action, ...payload })
   localStorage.setItem('drsp_demo_db', JSON.stringify(next))
   return { ok: true }
 }
