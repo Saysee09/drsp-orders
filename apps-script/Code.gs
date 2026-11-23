@@ -125,6 +125,8 @@ function doPost(e) {
     return json_({ ok: false, error: 'BAD_REQUEST' });
   }
   try {
+    // First use (or a tab was deleted): build the sheet automatically
+    if (!SpreadsheetApp.getActive().getSheetByName('Products_Master') || !SpreadsheetApp.getActive().getSheetByName('Templates')) setup();
     if (req.action === 'login') return json_({ ok: true, data: login_(req.username, req.password) });
 
     const user = auth_(req.session);

@@ -180,6 +180,11 @@ export default function NewOrder() {
 
       <Card className="space-y-3 p-4">
         <div className="text-sm font-semibold text-slate-700">Tap to add · tap again for more</div>
+        {activeProducts.length === 0 && (
+          <p className="rounded-xl bg-amber-50 p-3 text-sm font-medium text-amber-900">
+            No products yet. If you just connected the sheet, tap the refresh button at the top. Otherwise add pickles in More → Catalog & prices.
+          </p>
+        )}
         {[...byCat.entries()].map(([cat, groups]) => (
           <div key={cat}>
             <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">{cat}</div>
