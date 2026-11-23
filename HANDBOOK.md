@@ -1,117 +1,124 @@
 ---
 title: "DRSP Orders — Project Handbook & Handover"
-subtitle: "Family homemade pickle (achar) business app · last updated 23 Nov 2026"
+subtitle: "Family homemade pickle (achar) business app · last updated 24 Nov 2026"
 ---
 
 # 1. Restart prompt (paste this into a new chat)
 
-> I'm continuing work on **DRSP Orders**, the PWA for my family's homemade pickle (achar) business. Repo: **https://github.com/Saysee09/drsp-orders** (branch `main`). Live app: **https://saysee09.github.io/drsp-orders/**. Please attach the repo, read `HANDBOOK.md` and `README.md` in it, and continue from the "Status" and "Next steps" sections. Stack: React 19 + Vite 8, Tailwind 4, lucide-react, vite-plugin-pwa, one shared username/password login, Google Apps Script backend (`apps-script/Code.gs`) over one master Google Sheet, GitHub Pages deploy via GitHub Actions. Always give me the GitHub links when you deliver work. Today I want to: **[write the task here]**
+> I'm continuing work on **DRSP Orders**, the PWA for my family's homemade pickle (achar) business. Repo: **https://github.com/Saysee09/drsp-orders** (branch `main`). Live app: **https://saysee09.github.io/drsp-orders/**. Please attach the repo, read `HANDBOOK.md` in it, and continue from the "Status" and "Next steps" sections. Stack: React 19 + Vite 8, Tailwind 4, lucide-react, vite-plugin-pwa, one shared username/password login, Google Apps Script backend (`apps-script/Code.gs`) over one master Google Sheet + a Drive folder for files, GitHub Pages deploy via GitHub Actions. Always give me the GitHub links when you deliver work. Give setup steps and code in chat; only update the handbook when I ask. Today I want to: **[write the task here]**
 
 # 2. What the app is
 
-DRSP Orders replaces manual spreadsheet tracking for the family pickle business. It's a mobile-first Progressive Web App (installable on Android and iPhone) for:
+DRSP Orders replaces manual spreadsheet tracking for the family pickle business. It's a mobile-first Progressive Web App (installable on Android and iPhone). No subscription or hosting costs: GitHub Pages + Google Sheets + Apps Script + Google Drive. Target launch: **December 2026**.
 
-- fast phone-order intake (tap a pickle size to add it)
-- one-tap order tracking: New → Making → Packed → On the way → Delivered
-- sending the menu (photo/PDF link or the file itself) and ready-made WhatsApp messages to any number
-- a big-button Kitchen Mode for Amma
-- expenses, CSV price updates, profit and customer analytics
+- **Login:** one family username + password. Everyone sees everything. Each phone can save "who uses this phone" (shown on orders as "by Sasi"). Kitchen Mode is remembered per phone (turn it on once on Amma's phone).
+- **Live connection:** `public/config.json` → `apiUrl` = `https://script.google.com/macros/s/AKfycbz9WmAX5YrEAg-9wOObk66KURuQN4SHWSFo_CyRzORk70NiOZuMNxij6xt323z7FhceCg/exec` (connected 24 Nov 2026).
 
-No subscription or hosting costs: GitHub Pages + Google Sheets + Apps Script. Target launch: **December 2026**.
+# 3. Screens (bottom tabs)
 
-## Login
+**New order** — 3 steps:
 
-One family **username + password** (set in `Code.gs`, changeable in the app under More → Username & password). Everyone has the same access. Each phone can store "who uses this phone" so orders show "by Sasi" etc. Kitchen Mode is remembered per phone.
+1. Customer: WhatsApp number (returning customers auto-fill name/address, show tier, "+ Add usual"), name, address.
+2. Pickles: tap a size button to add (badge shows count), − / + to change, "+ Add discount" per item.
+3. Delivery & payment: No date / Today / Tomorrow / pick a date, delivery charge, note for kitchen, Unpaid / Paid UPI / Paid cash.
 
-# 3. Decisions we made together
+Slim bar at the bottom shows items + total + **Save order**. After saving: confirmation preview, **Send confirmation on WhatsApp**, **Ask ₹ (UPI)**.
 
-| Topic | Decision | Why |
-|---|---|---|
-| Login | **One shared username + password** (changed 23 Nov; replaced Google Sign-In + per-person roles) | Simpler for the family; no Google Cloud setup. Brute-force pause after 8 wrong tries; password change logs out all other phones; 90-day logins. |
-| Order status | **One stage bar: New → Making → Packed → On the way → Delivered** (23 Nov) | Easier than three separate controls. Stored in the same two columns (`Prep_Status`, `Delivery_Status`); "Shipped" renamed **Out for Delivery**. |
-| Messages | **Editable templates** with `{placeholders}`; edits stored in a `Templates` tab, so all phones share them. Built-ins can be reset; custom ones can be added. | Change wording once, used everywhere. |
-| Menu sending | Menu photo/PDF live in `public/menu/`; customers get a link to a menu page whose preview shows the photo. "Share photo/PDF" attaches the real file via the phone's share menu. | WhatsApp doesn't let apps attach a file to a specific number, so the link is the one-tap way; sharing the file needs picking the chat. |
-| Backend | Google Apps Script web app | Password checked server-side; sheet stays private |
-| Hosting | GitHub Pages | Free, automatic |
-| Orders | Multi-item cart; one sheet row per item sharing `Order_ID` | |
-| Discount | Per item | Matches spec `Sold_Amount = QTY × MRP − Discount` |
-| IDs | `ORD-YYYYMMDD-XXX` / `EXP-YYYYMMDD-XXX`, random suffix | Offline phones never clash |
-| Customers tab | Recomputed by the script after each order | |
-| Revenue | Gross = item sales + delivery; Net = gross − expenses; Margin = net ÷ gross | |
-| Tiers | VIP > ₹5,000, Regular > ₹2,000, else New | From spec |
-| WhatsApp | Official `wa.me` links only; user presses Send | Zero ban risk |
-| UPI | Payment message with amount, UPI ID and `upi://pay` link | |
-| Feedback | Offered 1–21 days after delivery; marks `Feedback_Sent = Yes` | Never asked twice |
+**Orders** — filters (wrap): Not delivered (default) · To make · Packed · On the way · Unpaid · Ask review · All. Each card:
 
-# 4. Screens (bottom tabs)
+- Stage bar **New → Making → Packed → On the way → Delivered**. Tap any step directly (earlier steps auto-complete, shown with ✓).
+- Payment: Unpaid / Paid UPI / Paid cash. Every tap shows a small "Marked … · Undo" note under the header.
+- "Tell customer it's on the way", "Ask ₹" (payment message + UPI QR), "Ask review", WhatsApp (message picker), call, delete.
 
-- **New order** – number lookup (returning customer name/address/tier, "+ Add usual"), tap-to-add size buttons with count badges, per-item qty & discount, delivery charge, deliver-by date, notes, payment. After saving: preview + **Send confirmation on WhatsApp** + **Ask ₹ (UPI)**. "Send menu" button at the top.
-- **Orders** – search; filters Not delivered (default) · To make · Packed · On the way · Unpaid · Ask feedback · All. Each card: stage bar, payment (Unpaid / Paid UPI / Paid cash), Undo on every tap, "Tell customer it's on the way" when On the way, Ask ₹, Ask feedback, WhatsApp (message picker with the right message suggested), call, delete.
-- **Send** – enter any number (+ optional name) → **Send menu on WhatsApp**, **Share photo / Share PDF**, "Change the words first", and the other customer messages (reorder reminder, custom offers).
-- **Money** – Profit dashboard (ranges, KPIs, product ranking, feedback to ask, payments to collect, top customers, reorder nudges) and Expenses.
-- **More** – Messages editor (tap-to-insert placeholders, live WhatsApp-style preview, reset/delete), Catalog & prices (CSV with diff, add/edit products), menu photo/PDF status, username & password, this phone's name, log out.
-- **Kitchen** (chef-hat in the header) – "To make now" totals, START PREP / MARK PACKED.
+**Send**
 
-Built-in messages: Menu (photo + PDF link), Menu (price list as text), Order confirmation, Payment request (UPI), Out for delivery, Delivered — thank you, Ask for feedback, Reorder reminder.
+- *To one customer:* number + optional name → **Send menu** (1. open chat with message, 2. attach menu photo + PDF), other messages (reorder reminder, your own).
+- *Campaigns & offers:* create a campaign — name, type (🎉 Offer, 🪔 Festival, 🏺 New batch, 💛 We miss you, Other), optional photo (e.g. poster made in Gemini), message with `{first_name}` etc., audience (All, Not ordered in 30+ days, VIP, Regular, New, or only pasted numbers; extra pasted numbers can be added to any). Sending is one customer at a time: **1. Open chat with message → 2. Attach photo → Done, next customer**, with "X of Y sent" progress saved to the sheet (no double sending across phones). Shortcut card for customers lapsed 30+ days. Safety note: send to people who know DRSP, ~20–30 a day from a personal number.
 
-# 5. Google Sheet structure (created by `setup()`)
+**Money** — Profit (ranges, KPIs, product ranking, review to ask, payments to collect, top customers, reorder nudges) and Expenses.
+
+**More**
+
+- Business details: business name, business WhatsApp number, UPI ID & name, **Google review link** (the "Ask review" message sends customers there).
+- Messages: edit the 8 built-in WhatsApp messages or add your own; tap-to-insert placeholders; preview; reset.
+- Catalog & prices: add/edit products, CSV price update with diff.
+- Username & password (changing it logs out other phones).
+- Menu & payment files: upload/replace **Menu photo**, **Menu PDF**, **UPI QR (scanner)** — saved in Drive folder "DRSP Orders – Files", cached on each phone.
+- This phone's name, log out.
+
+**Kitchen** (chef-hat in header) — "To make now" totals, START PREP / MARK PACKED, big text.
+
+# 4. Decisions we made together
+
+| Topic | Decision |
+|---|---|
+| Name | Stays **DRSP Orders** |
+| Login | One shared username + password (no Google Sign-In, no roles). 8 wrong tries → 15-min pause. 90-day logins. |
+| Order status | One stage bar; stored in `Prep_Status` + `Delivery_Status`. "Shipped" renamed **Out for Delivery**. |
+| Messages | Editable templates; edits stored in `Templates` tab. Built-ins: Menu (with photo/PDF), Menu (price list text), Order confirmation, Payment request (UPI), Out for delivery, Delivered — thank you, Ask for review, Reorder reminder. |
+| Files | Uploaded in the app → Google Drive via Apps Script. No public menu web page (removed by request). |
+| Sending files | WhatsApp doesn't allow apps to attach a file to a specific number, so: open chat with text (wa.me) → attach file via phone share menu → pick that chat (top of list). |
+| UPI | User will use a UPI QR (scanner) image; UPI ID optional. |
+| Reviews | Ask review → Google review link (set in More → Business details). Later: connect Google Business Profile. |
+| WhatsApp | Official `wa.me` links only; a person always presses Send. |
+| Handbook | Only updated when asked; setup steps/code given in chat. |
+
+# 5. Google Sheet & Drive (created automatically)
 
 - **Orders** – Order_ID, Date, Customer_Name, Customer_Phone, Product_Code, Product_Name, QTY, MRP, Discount, Sold_Amount, Lead_By, Prep_Status, Payment_Status, Delivery_Status (Pending / Out for Delivery / Delivered), Delivery_Charge, Address, Notes, Due_Date, Updated_At, Delivered_At, Feedback_Sent
 - **Products_Master** – Product_Code, Product_Name, MRP, Category, Active_Status (14-item catalog pre-loaded)
 - **Expenses** – Expense_ID, Date, Category, Item_Name, Amount, Remarks, Lead_By
-- **Customers** – automatic rollup
-- **Templates** – Key, Name, Type (customer/order), Text — only edited/added messages
+- **Customers** – automatic rollup (tiers: VIP > ₹5,000, Regular > ₹2,000, else New)
+- **Templates** – Key, Name, Type, Text (only edited/added messages)
+- **Campaigns** – Campaign_ID, Name, Type, Text, Audience, Numbers, Created_At, Sent (JSON list of phones)
+- **Script Properties** (not visible in the sheet): login, sessions, business settings, file records
+- **Drive folder** "DRSP Orders – Files": menu photo/PDF, UPI QR, campaign photos
 
-An old `Users` tab (from the Google Sign-In version) is no longer used and can be deleted.
+The script creates any missing tabs on its own (or run `setup` manually).
 
 # 6. Code map
 
 | Path | What it is |
 |---|---|
-| `apps-script/Code.gs` | Backend: setup, password login & sessions, order/expense/price/template writes, customers rollup, `resetPassword` |
-| `public/config.json` | apiUrl, businessName, businessPhone, upiId, upiName, reviewLink, menuUrl |
-| `public/menu/` | Customer menu page (`index.html`) + `menu.jpg` + `menu.pdf` |
-| `src/lib/api.js` | Backend calls, demo mode (login `drsp` / `demo`), optimistic update logic |
-| `src/lib/store.jsx` | Login, offline queue, sync loop, phone name, templates |
+| `apps-script/Code.gs` | Backend: setup, login, orders/expenses/prices/templates/campaigns, settings, Drive files, customers rollup, `resetPassword` |
+| `public/config.json` | apiUrl + default business details (in-app Business details override) |
+| `src/lib/api.js` | Backend calls, demo mode (`drsp` / `demo` when apiUrl is empty), optimistic updates |
+| `src/lib/store.jsx` | Login, offline queue (+ keeps saved changes on screen until next pull), sync, settings |
 | `src/lib/templates.js` | Built-in messages, placeholder filling |
-| `src/lib/menu.js` | Menu file detection and file sharing |
-| `src/lib/utils.js` | Formatting, IDs, order stages, grouping, menu text, UPI, CSV |
-| `src/components/Messages.jsx` | Message picker sheet / WhatsApp button |
-| `src/screens/` | Login, NewOrder, Orders, Send, Money (Dashboard + Expenses), More (+ Admin catalog), Kitchen |
+| `src/lib/campaigns.js` | Campaign types, audiences, recipients |
+| `src/lib/files.js` | Upload/download/cache/share of Drive files |
+| `src/lib/utils.js` | Formatting, IDs, stages, grouping, UPI, CSV |
+| `src/components/Messages.jsx` | Message picker sheet, attach button |
+| `src/screens/` | Login, NewOrder, Orders, Send, Campaigns, Money (Dashboard + Expenses), More (+ Admin catalog), Kitchen |
 
-# 7. Status (23 Nov 2026)
+# 7. Status (24 Nov 2026)
 
-- ✅ App live on GitHub Pages (Demo mode until the sheet is connected)
-- ✅ 23 Nov: one shared login, simpler order stages incl. **Out for delivery**, Send screen, editable message templates, customer menu page, tap-to-add products, 5-tab layout
-- ⏳ Waiting for: menu photo + PDF, Google Sheet connection, UPI ID, business WhatsApp number
+- ✅ Sheet + Apps Script deployed and connected; login works
+- ✅ Order taking redesign, stage bar fix (no jump-back), small toast, campaigns with photo, Google review link, in-app file uploads
+- ⏳ To do by Sasi:
+  - Paste the **latest Code.gs** into Apps Script (keep your own `APP_USERNAME` / `APP_PASSWORD`), Save, then **Deploy → Manage deployments → Edit → New version → Deploy** — needed for campaigns and Business details
+  - Upload menu photo, menu PDF, UPI QR in More → Menu & payment files
+  - Add Google review link in More → Business details
+  - Install on family phones; Kitchen Mode on Amma's phone
+  - 2–3 test orders end to end, then delete them
 
-# 8. December launch checklist
+# 8. Next ideas
 
-1. Send Claude (or upload to `public/menu/`) **menu.jpg** and **menu.pdf**.
-2. Google Sheet → Apps Script → paste `Code.gs` → set `APP_USERNAME` / `APP_PASSWORD` → run `setup`.
-3. Deploy as Web app (Execute as Me, Anyone) → copy the `/exec` URL.
-4. Put `apiUrl`, `upiId`, `businessPhone` in `public/config.json` (or send them to Claude).
-5. Install on each phone, log in, set "who uses this phone"; turn on Kitchen Mode on Amma's phone.
-6. Do 2–3 test orders end to end (New → Delivered, payment, messages), then delete them.
-7. Read through More → Messages and adjust the wording.
+- Connect Google Business Profile (reviews) to the app
+- Separate WhatsApp Business number (safer for campaigns)
+- DRSP website linked to the app / web orders into the sheet
+- Log "menu sent" numbers to follow up non-buyers
+- Telugu/Hindi labels in Kitchen Mode; printable packing slip; customer export
 
-# 9. Future ideas
-
-- Separate business WhatsApp number (then set `businessPhone`).
-- Business website linked to the app / orders straight into the sheet.
-- Log "menu sent" numbers to follow up people who haven't ordered.
-- Telugu/Hindi labels in Kitchen Mode; printable packing slip; customer list export.
-
-# 10. Troubleshooting
+# 9. Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| "Wrong username or password" | Check spelling; username isn't case-sensitive, password is |
-| "Too many wrong tries" | Wait 15 minutes |
-| Forgot the password | Apps Script: change `APP_PASSWORD`, Save, run `resetPassword` |
-| Everyone got logged out | Someone changed the password — log in with the new one |
-| Header says "n to save" for long | Phone offline or wrong `apiUrl`; changes are kept on the phone |
-| New sheet column not filling | Run `setup()` again, then Deploy → Manage deployments → New version |
-| Menu link shows "coming soon" | `public/menu/menu.jpg` missing or misnamed |
-| App looks old | Tap the blue "App Update Available" bar, or close and reopen |
-| Deploy failed | Repo Actions tab; Pages source must be "GitHub Actions" |
+| "Missing tab …" | Run `setup` in Apps Script (or paste the latest Code.gs + new version — it auto-creates tabs) |
+| Wrong username/password | Username not case-sensitive, password is |
+| Forgot password | Apps Script: change `APP_PASSWORD`, Save, run `resetPassword` |
+| Everyone logged out | Password was changed — use the new one |
+| Upload fails | Re-run `setup` once to approve Drive permission; check "Who has access: Anyone" |
+| New feature "UNKNOWN_ACTION" error | Code.gs not updated / not redeployed as **New version** |
+| "n to save" for long | Phone offline; changes are kept and save later |
+| App looks old | Tap the blue "App Update Available" bar, or reopen the app |
