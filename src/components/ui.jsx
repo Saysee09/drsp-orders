@@ -30,13 +30,14 @@ export function Button({ variant = 'primary', size = 'md', className, children, 
   )
 }
 
-export function Field({ label, hint, error, children, className }) {
+export function Field({ label, hint, error, children, className, group }) {
+  const Tag = group ? 'div' : 'label' // chip/button groups must not sit inside a <label>
   return (
-    <label className={cx('block', className)}>
+    <Tag className={cx('block', className)}>
       {label && <span className="mb-1 block text-sm font-semibold text-slate-700">{label}</span>}
       {children}
       {error ? <span className="mt-1 block text-sm font-medium text-rose-600">{error}</span> : hint ? <span className="mt-1 block text-xs text-slate-500">{hint}</span> : null}
-    </label>
+    </Tag>
   )
 }
 
@@ -78,7 +79,7 @@ export function Pill({ active, children, ...rest }) {
     <button
       type="button"
       className={cx(
-        'h-10 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition',
+        'h-9 shrink-0 whitespace-nowrap rounded-full px-3.5 text-sm font-semibold transition',
         active ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300',
       )}
       {...rest}

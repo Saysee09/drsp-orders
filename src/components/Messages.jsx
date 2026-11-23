@@ -34,7 +34,7 @@ export function AttachButton({ kinds, who, className }) {
   const { loading, recs } = useFiles(kinds, files, callNow)
   const have = kinds.filter((k) => files[k])
   if (!have.length) return null
-  const labels = have.length === 2 && have.includes('menu_pdf') ? 'menu photo + PDF' : have.map((k) => FILE_KINDS.find((x) => x.kind === k).label.replace(' (scanner)', '')).join(' + ')
+  const labels = have.length === 2 && have.includes('menu_pdf') ? 'menu photo + PDF' : have.map((k) => (FILE_KINDS.find((x) => x.kind === k)?.label || 'photo').replace(' (scanner)', '')).join(' + ')
   const go = async () => {
     const r = await shareFiles(recs)
     if (r === 'downloaded') notify('This phone can’t attach from the app — the file was downloaded. Attach it in WhatsApp.', 'info')

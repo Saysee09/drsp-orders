@@ -5,6 +5,7 @@ import { cleanPhone, inr, isValidPhone, prettyDate, waLink } from '../lib/utils'
 import { MENU_KINDS } from '../lib/files'
 import { Badge, Button, Card, Field, SectionTitle, inputCls } from '../components/ui'
 import { AttachButton, MessageSheet, useMessage } from '../components/Messages'
+import { CampaignsSection } from './Campaigns'
 
 export default function Send() {
   const { customers, templates, notify, files } = useStore()
@@ -13,6 +14,7 @@ export default function Send() {
   const [name, setName] = useState('')
   const [sheet, setSheet] = useState(null) // template key being edited
   const [touched, setTouched] = useState(false)
+  const [campaign, setCampaign] = useState(null)
 
   const phone = cleanPhone(raw)
   const ok = isValidPhone(phone)
@@ -34,9 +36,12 @@ export default function Send() {
     return true
   }
 
+  if (campaign) return <CampaignsSection open={campaign} setOpen={setCampaign} />
+
   return (
     <div className="space-y-3">
-      <h1 className="text-2xl font-black text-slate-900">Send to customer</h1>
+      <h1 className="text-2xl font-black text-slate-900">Send</h1>
+      <SectionTitle>To one customer</SectionTitle>
 
       <Card className="space-y-3 p-4">
         <Field label="Customer WhatsApp number" error={touched && !ok ? 'Enter a 10-digit mobile number (starts with 6–9)' : ''}>
@@ -72,8 +77,8 @@ export default function Send() {
         )}
       </Card>
 
-      <SectionTitle>Menu</SectionTitle>
       <Card className="space-y-3 p-4">
+        <div className="text-sm font-bold text-slate-700">Menu</div>
         <a href={ok ? waLink(phone, menuMsg) : '#'} target="_blank" rel="noreferrer" onClick={guard} className="block">
           <Button variant="whatsapp" size="lg" className="w-full">
             <SendIcon size={20} /> {hasFiles ? '1. Open chat with menu message' : 'Send menu on WhatsApp'}
@@ -89,8 +94,8 @@ export default function Send() {
         </Button>
       </Card>
 
-      <SectionTitle>Other messages</SectionTitle>
       <Card className="divide-y divide-slate-100">
+        <div className="px-4 pt-3 text-sm font-bold text-slate-700">Other messages</div>
         {others.map((t) => (
           <button
             key={t.key}
@@ -107,6 +112,8 @@ export default function Send() {
         ))}
         {others.length === 0 && <p className="p-4 text-sm text-slate-500">Add your own messages (offers, festival greetings) in More → Messages.</p>}
       </Card>
+
+      <CampaignsSection open={null} setOpen={setCampaign} />
 
       <MessageSheet open={!!sheet} onClose={() => setSheet(null)} phone={ok ? phone : ''} name={who} suggested={sheet} />
     </div>

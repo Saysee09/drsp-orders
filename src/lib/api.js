@@ -19,8 +19,17 @@ export async function loadConfig() {
   return config
 }
 
+/** Business details saved in the app (More → Business details) win over config.json. */
+let appSettings = {}
+export function applySettings(s) {
+  appSettings = Object.fromEntries(Object.entries(s || {}).filter(([, v]) => v !== '' && v != null))
+}
+
 /** In demo mode a sample UPI ID is used so the payment flow can be tried. */
-export const getConfig = () => (!config.apiUrl && !config.upiId ? { ...config, upiId: 'drsppickles@okaxis', upiName: 'DRSP Pickles' } : config)
+export const getConfig = () => {
+  const c = { ...config, ...appSettings }
+  return !config.apiUrl && !c.upiId ? { ...c, upiId: 'drsppickles@okaxis', upiName: 'DRSP Pickles' } : c
+}
 export const isDemo = () => !config.apiUrl
 
 export class ApiError extends Error {
@@ -126,6 +135,28 @@ export function applyOp(data, op) {
       d.templates = list.some((x) => x.Key === t.key) ? list.map((x) => (x.Key === t.key ? row : x)) : [...list, row]
       return d
     }
+    case 'saveCampaign': {
+      const c = op.campaign
+      const list = d.campaigns || []
+      const old = list.find((x) => x.Campaign_ID === c.id)
+      const row = { Campaign_ID: c.id, Name: c.name, Type: c.type, Text: c.text, Audience: c.audience, Numbers: c.numbers || '', Created_At: c.createdAt, Sent: old?.Sent || '[]' }
+      d.campaigns = old ? list.map((x) => (x.Campaign_ID === c.id ? row : x)) : [...list, row]
+      return d
+    }
+    case 'deleteCampaign':
+      d.campaigns = (d.campaigns || []).filter((x) => x.Campaign_ID !== op.id)
+      return d
+    case 'markCampaignSent':
+      d.campaigns = (d.campaigns || []).map((x) => {
+        if (x.Campaign_ID !== op.id) return x
+        let sent = []
+        try {
+          sent = JSON.parse(x.Sent || '[]')
+        } catch { /* empty */ }
+        sent = op.undo ? sent.filter((p) => p !== op.phone) : sent.includes(op.phone) ? sent : [...sent, op.phone]
+        return { ...x, Sent: JSON.stringify(sent) }
+      })
+      return d
     case 'deleteTemplate':
       d.templates = (d.templates || []).filter((x) => x.Key !== op.key)
       return d
@@ -221,7 +252,7 @@ function seedDemo() {
 function demoDb() {
   try {
     const db = JSON.parse(localStorage.getItem('drsp_demo_db') || 'null')
-    if (db) return { templates: [], ...db }
+    if (db) return { templates: [], campaigns: [], ...db }
   } catch { /* ignore */ }
   const db = seedDemo()
   localStorage.setItem('drsp_demo_db', JSON.stringify(db))
@@ -238,8 +269,13 @@ async function demoCall(action, payload) {
   if (payload.session !== 'demo:session') throw new ApiError('SESSION_EXPIRED')
   if (action === 'logout') return null
   if (action === 'changePassword') throw new ApiError('DEMO_ONLY')
+  if (action === 'saveSettings') {
+    const cur = { ...JSON.parse(localStorage.getItem('drsp_demo_settings') || '{}'), ...payload.settings }
+    localStorage.setItem('drsp_demo_settings', JSON.stringify(cur))
+    return cur
+  }
   const db = demoDb()
-  if (action === 'sync') return { ...db, files: JSON.parse(localStorage.getItem('drsp_demo_files') || '{}'), user: { username: DEMO_LOGIN.username }, serverTime: new Date().toISOString() }
+  if (action === 'sync') return { ...db, files: JSON.parse(localStorage.getItem('drsp_demo_files') || '{}'), settings: JSON.parse(localStorage.getItem('drsp_demo_settings') || '{}'), user: { username: DEMO_LOGIN.username }, serverTime: new Date().toISOString() }
   const next = applyOp(db, { action, ...payload })
   localStorage.setItem('drsp_demo_db', JSON.stringify(next))
   return { ok: true }

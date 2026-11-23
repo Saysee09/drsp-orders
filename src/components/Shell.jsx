@@ -109,32 +109,35 @@ export function BottomNav({ tabs, tab, setTab }) {
   )
 }
 
+/** Small note just under the header — never covers buttons. */
 export function Toast() {
   const { toast, clearToast } = useStore()
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(clearToast, toast.action ? 6000 : 3500)
+    const t = setTimeout(clearToast, toast.action ? 5000 : 2500)
     return () => clearTimeout(t)
   }, [toast, clearToast])
   if (!toast) return null
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4">
+    <div className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+3.75rem)] z-50 flex justify-center px-4">
       <div
+        role="status"
         className={cx(
-          'pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold shadow-lg',
-          toast.kind === 'error' ? 'bg-rose-600 text-white' : toast.kind === 'success' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white',
+          'pointer-events-auto flex max-w-sm items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5 text-[13px] font-semibold shadow-md',
+          toast.kind === 'error' ? 'bg-rose-600 text-white' : toast.kind === 'success' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-white',
+          !toast.action && 'pr-4',
         )}
       >
-        <span>{toast.msg}</span>
+        <span className="truncate">{toast.msg}</span>
         {toast.action && (
           <button
-            className="flex shrink-0 items-center gap-1 rounded-lg bg-white/20 px-3 py-1.5 font-bold"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-bold"
             onClick={() => {
               toast.action.run()
               clearToast()
             }}
           >
-            <Undo2 size={16} /> {toast.action.label}
+            <Undo2 size={13} /> {toast.action.label}
           </button>
         )}
       </div>

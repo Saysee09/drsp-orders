@@ -30,6 +30,7 @@ const SHEETS = {
   Customers: ['Customer_Phone', 'Customer_Name', 'Total_Orders', 'Total_Spent', 'Last_Order_Date',
     'Favorite_Product', 'Customer_Tier', 'Address'],
   Templates: ['Key', 'Name', 'Type', 'Text'],
+  Campaigns: ['Campaign_ID', 'Name', 'Type', 'Text', 'Audience', 'Numbers', 'Created_At', 'Sent'],
 };
 
 // Columns stored as plain text so Sheets never turns them into dates/numbers.
@@ -39,6 +40,7 @@ const TEXT_COLS = {
   Expenses: ['Expense_ID', 'Date'],
   Customers: ['Customer_Phone', 'Last_Order_Date'],
   Templates: ['Key', 'Text'],
+  Campaigns: ['Campaign_ID', 'Numbers', 'Created_At', 'Sent'],
 };
 
 const SEED_PRODUCTS = [
@@ -66,6 +68,8 @@ const TEMPLATE_TYPES = ['customer', 'order'];
 const MAX_FAILS = 8;
 // Files uploaded from the app (More → Menu & payment files). Kept in a Drive folder you own.
 const FILE_KINDS = ['menu_image', 'menu_pdf', 'upi_qr'];
+const isFileKind_ = function (k) { return FILE_KINDS.indexOf(k) > -1 || /^camp_[A-Za-z0-9_-]{1,40}$/.test(String(k)); };
+const SETTING_KEYS = ['businessName', 'businessPhone', 'upiId', 'upiName', 'reviewLink'];
 const MAX_FILE_MB = 10;
 const LOCK_MINUTES = 15;
 
@@ -126,7 +130,7 @@ function doPost(e) {
   }
   try {
     // First use (or a tab was deleted): build the sheet automatically
-    if (!SpreadsheetApp.getActive().getSheetByName('Products_Master') || !SpreadsheetApp.getActive().getSheetByName('Templates')) setup();
+    if (!SpreadsheetApp.getActive().getSheetByName('Products_Master') || !SpreadsheetApp.getActive().getSheetByName('Templates') || !SpreadsheetApp.getActive().getSheetByName('Campaigns')) setup();
     if (req.action === 'login') return json_({ ok: true, data: login_(req.username, req.password) });
 
     const user = auth_(req.session);
@@ -136,6 +140,7 @@ function doPost(e) {
     }
     if (req.action === 'sync') return json_({ ok: true, data: snapshot_(user) });
     if (req.action === 'changePassword') return json_({ ok: true, data: changePassword_(req, user) });
+    if (req.action === 'saveSettings') return json_({ ok: true, data: saveSettings_(req) });
     if (req.action === 'getFile') return json_({ ok: true, data: getFile_(req) });
     if (req.action === 'uploadFile') return json_({ ok: true, data: uploadFile_(req) });
     if (req.action === 'deleteFile') return json_({ ok: true, data: deleteFile_(req) });
@@ -165,6 +170,9 @@ const ACTIONS = {
   updatePrices: updatePrices_,
   saveProduct: saveProduct_,
   saveTemplate: saveTemplate_,
+  saveCampaign: saveCampaign_,
+  deleteCampaign: deleteCampaign_,
+  markCampaignSent: markCampaignSent_,
   deleteTemplate: deleteTemplate_,
 };
 
@@ -261,6 +269,8 @@ function snapshot_(user) {
     customers: readRows_('Customers'),
     templates: readRows_('Templates'),
     files: filesMeta_(),
+    campaigns: readRows_('Campaigns'),
+    settings: JSON.parse(PropertiesService.getScriptProperties().getProperty('SETTINGS') || '{}'),
     serverTime: new Date().toISOString(),
   };
 }
@@ -432,16 +442,17 @@ function filesFolder_() {
 
 function filesMeta_() {
   const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
   const out = {};
-  FILE_KINDS.forEach(function (k) {
-    const raw = props.getProperty('FILE_' + k);
-    if (raw) { const m = JSON.parse(raw); delete m.id; out[k] = m; }
+  Object.keys(all).forEach(function (key) {
+    if (key.indexOf('FILE_') !== 0 || key === 'FILES_FOLDER') return;
+    try { const m = JSON.parse(all[key]); delete m.id; out[key.slice(5)] = m; } catch (e) { /* skip */ }
   });
   return out;
 }
 
 function uploadFile_(req) {
-  if (FILE_KINDS.indexOf(req.kind) === -1) throw new Error('BAD_FILE_KIND');
+  if (!isFileKind_(req.kind)) throw new Error('BAD_FILE_KIND');
   if (!req.data) throw new Error('NO_FILE');
   const bytes = Utilities.base64Decode(req.data);
   if (bytes.length > MAX_FILE_MB * 1048576) throw new Error('FILE_TOO_BIG');
@@ -461,6 +472,16 @@ function uploadFile_(req) {
   return meta;
 }
 
+function saveSettings_(req) {
+  const props = PropertiesService.getScriptProperties();
+  const cur = JSON.parse(props.getProperty('SETTINGS') || '{}');
+  SETTING_KEYS.forEach(function (k) {
+    if (req.settings && k in req.settings) cur[k] = String(req.settings[k] || '').trim().slice(0, 300);
+  });
+  props.setProperty('SETTINGS', JSON.stringify(cur));
+  return cur;
+}
+
 function getFile_(req) {
   const raw = PropertiesService.getScriptProperties().getProperty('FILE_' + req.kind);
   if (!raw) throw new Error('NO_FILE');
@@ -477,6 +498,48 @@ function deleteFile_(req) {
     props.deleteProperty('FILE_' + req.kind);
   }
   return { deleted: true };
+}
+
+/* ------------------------------------------------------------- campaigns */
+
+function saveCampaign_(req) {
+  const c = req.campaign;
+  if (!c || !c.id || !String(c.name || '').trim()) throw new Error('INVALID_CAMPAIGN');
+  const sh = sheet_('Campaigns');
+  const hdr = headers_(sh);
+  const i = columnValues_(sh, 'Campaign_ID').indexOf(c.id);
+  const sentCol = hdr.indexOf('Sent');
+  const keepSent = i > -1 && sentCol > -1 ? sh.getRange(i + 2, sentCol + 1).getValue() : '[]';
+  const rec = { Campaign_ID: c.id, Name: String(c.name).trim(), Type: c.type || 'Offer', Text: String(c.text || ''),
+    Audience: c.audience || 'all', Numbers: String(c.numbers || ''), Created_At: c.createdAt || new Date().toISOString(), Sent: keepSent || '[]' };
+  const row = hdr.map(function (h) { return rec[h] === undefined ? '' : rec[h]; });
+  if (i > -1) sh.getRange(i + 2, 1, 1, row.length).setValues([row]);
+  else sh.appendRow(row);
+  return { saved: true };
+}
+
+function deleteCampaign_(req) {
+  const sh = sheet_('Campaigns');
+  const ids = columnValues_(sh, 'Campaign_ID');
+  for (let i = ids.length - 1; i >= 0; i--) if (ids[i] === req.id) sh.deleteRow(i + 2);
+  try { deleteFile_({ kind: 'camp_' + req.id }); } catch (e) { /* no photo */ }
+  return { deleted: true };
+}
+
+/** Remembers who already got a campaign (so two phones never send twice). */
+function markCampaignSent_(req) {
+  const sh = sheet_('Campaigns');
+  const hdr = headers_(sh);
+  const i = columnValues_(sh, 'Campaign_ID').indexOf(req.id);
+  if (i < 0) throw new Error('CAMPAIGN_NOT_FOUND');
+  const cell = sh.getRange(i + 2, hdr.indexOf('Sent') + 1);
+  let sent = [];
+  try { sent = JSON.parse(cell.getValue() || '[]'); } catch (e) { sent = []; }
+  const ph = String(req.phone);
+  if (req.undo) sent = sent.filter(function (p) { return p !== ph; });
+  else if (sent.indexOf(ph) === -1) sent.push(ph);
+  cell.setValue(JSON.stringify(sent));
+  return { sent: sent.length };
 }
 
 /* ------------------------------------------------------ customers rollup */

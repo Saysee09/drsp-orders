@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
-import { CheckCircle2, Crown, Minus, Plus, ShoppingBasket, Trash2, UserCheck } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { CheckCircle2, Crown, Minus, Plus, ShoppingBasket, Tag, Trash2, UserCheck } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { PAY, PAY_LABEL, cleanPhone, groupOrders, inr, isValidPhone, makeId, prettyDate, todayStr } from '../lib/utils'
+import { PAY, PAY_LABEL, addDays, cleanPhone, groupOrders, inr, isValidPhone, makeId, prettyDate, todayStr } from '../lib/utils'
 import { Badge, Button, Card, Field, PAY_COLORS, Segmented, Sheet, cx, inputCls } from '../components/ui'
 import { MessageButton, useMessage } from '../components/Messages'
 import { PayButton } from './Orders'
@@ -11,19 +11,26 @@ const blank = () => ({ phone: '', name: '', address: '', items: [], deliveryChar
 function Stepper({ value, onChange, min = 1 }) {
   return (
     <div className="flex items-center rounded-xl bg-slate-100">
-      <button type="button" className="grid h-11 w-11 place-items-center active:bg-slate-200 rounded-l-xl" onClick={() => onChange(Math.max(min, value - 1))} aria-label="Less">
+      <button type="button" className="grid h-10 w-10 place-items-center rounded-l-xl active:bg-slate-200" onClick={() => onChange(Math.max(min, value - 1))} aria-label="Less">
         <Minus size={18} />
       </button>
-      <input
-        inputMode="numeric"
-        className="h-11 w-10 bg-transparent text-center font-bold outline-none"
-        value={value}
-        onChange={(e) => onChange(Math.max(min, parseInt(e.target.value.replace(/\D/g, ''), 10) || min))}
-      />
-      <button type="button" className="grid h-11 w-11 place-items-center active:bg-slate-200 rounded-r-xl" onClick={() => onChange(value + 1)} aria-label="More">
+      <span className="w-8 text-center text-lg font-black">{value}</span>
+      <button type="button" className="grid h-10 w-10 place-items-center rounded-r-xl active:bg-slate-200" onClick={() => onChange(value + 1)} aria-label="More">
         <Plus size={18} />
       </button>
     </div>
+  )
+}
+
+function Step({ n, title, done, children, innerRef }) {
+  return (
+    <Card className="scroll-mt-20 p-4" ref={innerRef}>
+      <div className="mb-3 flex items-center gap-2">
+        <span className={cx('grid h-7 w-7 place-items-center rounded-full text-sm font-black', done ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white')}>{done ? '✓' : n}</span>
+        <h2 className="text-lg font-black text-slate-900">{title}</h2>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </Card>
   )
 }
 
@@ -32,8 +39,11 @@ export default function NewOrder() {
   const [f, setF] = useState(blank)
   const [touched, setTouched] = useState(false)
   const [saved, setSaved] = useState(null)
+  const [discOpen, setDiscOpen] = useState({})
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
   const build = useMessage()
+  const customerRef = useRef(null)
+  const itemsRef = useRef(null)
 
   const phone = cleanPhone(f.phone)
   const phoneOk = isValidPhone(phone)
@@ -43,12 +53,10 @@ export default function NewOrder() {
     const p = cleanPhone(v).slice(0, 10)
     setF((s) => {
       const next = { ...s, phone: p }
-      if (isValidPhone(p)) {
-        const c = customers.find((x) => x.phone === p)
-        if (c) {
-          if (!s.name) next.name = c.name
-          if (!s.address) next.address = c.address
-        }
+      const c = isValidPhone(p) && customers.find((x) => x.phone === p)
+      if (c) {
+        if (!s.name) next.name = c.name
+        if (!s.address) next.address = c.address
       }
       return next
     })
@@ -83,6 +91,7 @@ export default function NewOrder() {
   const updItem = (i, patch) => setF((s) => ({ ...s, items: s.items.map((x, j) => (j === i ? { ...x, ...patch } : x)) }))
   const delItem = (i) => setF((s) => ({ ...s, items: s.items.filter((_, j) => j !== i) }))
 
+  const count = f.items.reduce((a, x) => a + x.qty, 0)
   const subtotal = f.items.reduce((a, x) => a + x.qty * x.mrp, 0)
   const discount = f.items.reduce((a, x) => a + (Number(x.discount) || 0), 0)
   const delivery = Math.max(0, Number(f.deliveryCharge) || 0)
@@ -90,15 +99,19 @@ export default function NewOrder() {
 
   const errors = {
     phone: !phoneOk ? 'Enter a 10-digit mobile number (starts with 6–9)' : '',
-    name: !f.name.trim() ? 'Customer name is required' : '',
-    items: !f.items.length ? 'Add at least one product' : '',
-    discount: f.items.some((x) => Number(x.discount) > x.qty * x.mrp) ? 'Discount cannot be more than the item price' : '',
+    name: !f.name.trim() ? 'Enter the customer’s name' : '',
+    items: !f.items.length ? 'Tap at least one pickle above' : '',
+    discount: f.items.some((x) => Number(x.discount) > x.qty * x.mrp) ? 'Discount can’t be more than the item price' : '',
   }
   const valid = !Object.values(errors).some(Boolean)
+  const err = (k) => (touched ? errors[k] : '')
 
   const submit = () => {
     setTouched(true)
-    if (!valid) return
+    if (!valid) {
+      ;(errors.phone || errors.name ? customerRef : itemsRef).current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
     const order = {
       orderId: makeId('ORD'),
       date: todayStr(),
@@ -122,20 +135,29 @@ export default function NewOrder() {
     }))
     setSaved(groupOrders(rows)[0])
     setF(blank())
+    setDiscOpen({})
     setTouched(false)
+    window.scrollTo(0, 0)
   }
 
-  const err = (k) => (touched ? errors[k] : '')
+  const t = todayStr()
+  const dueChips = [
+    ['', 'No date'],
+    [t, 'Today'],
+    [addDays(t, 1), 'Tomorrow'],
+    [addDays(t, 2), prettyDate(addDays(t, 2))],
+  ]
+  const customDate = !dueChips.some(([v]) => v === f.dueDate)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 pb-16">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black text-slate-900">New Order</h1>
+        <h1 className="text-2xl font-black text-slate-900">New order</h1>
         <MessageButton phone={phoneOk ? phone : ''} name={f.name || known?.name} suggested="menu" size="sm" label="Send menu" />
       </div>
 
-      <Card className="space-y-3 p-4">
-        <Field label="Customer phone" error={err('phone')}>
+      <Step n={1} title="Customer" done={phoneOk && !!f.name.trim()} innerRef={customerRef}>
+        <Field label="WhatsApp number" error={err('phone')}>
           <div className="flex items-center rounded-xl bg-white ring-1 ring-slate-300 focus-within:ring-2 focus-within:ring-indigo-600">
             <span className="pl-3 font-semibold text-slate-500">+91</span>
             <input
@@ -143,7 +165,7 @@ export default function NewOrder() {
               type="tel"
               inputMode="numeric"
               autoComplete="off"
-              placeholder="98480 12345"
+              placeholder="10-digit number"
               value={f.phone}
               onChange={(e) => onPhone(e.target.value)}
             />
@@ -161,7 +183,7 @@ export default function NewOrder() {
               </div>
               {known.favorite && activeProducts.some((p) => p.Product_Name === known.favorite) && (
                 <button
-                  className="mt-1 font-semibold text-indigo-700 underline"
+                  className="mt-1.5 rounded-lg bg-white px-2.5 py-1 font-semibold text-indigo-700 ring-1 ring-indigo-200"
                   onClick={() => addItem(activeProducts.find((p) => p.Product_Name === known.favorite).Product_Code, 1)}
                 >
                   + Add usual: {known.favorite}
@@ -170,28 +192,29 @@ export default function NewOrder() {
             </div>
           </div>
         )}
-        <Field label="Customer name" error={err('name')}>
-          <input className={inputCls} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Full name" autoComplete="off" />
+        <Field label="Name" error={err('name')}>
+          <input className={inputCls} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Customer name" autoComplete="off" />
         </Field>
-        <Field label="Delivery address / area">
+        <Field label="Delivery address (optional)">
           <textarea className={inputCls + ' h-auto py-2'} rows={2} value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="Flat, street, area, city" />
         </Field>
-      </Card>
+      </Step>
 
-      <Card className="space-y-3 p-4">
-        <div className="text-sm font-semibold text-slate-700">Tap to add · tap again for more</div>
-        {activeProducts.length === 0 && (
+      <Step n={2} title="Pickles" done={f.items.length > 0} innerRef={itemsRef}>
+        {activeProducts.length === 0 ? (
           <p className="rounded-xl bg-amber-50 p-3 text-sm font-medium text-amber-900">
-            No products yet. If you just connected the sheet, tap the refresh button at the top. Otherwise add pickles in More → Catalog & prices.
+            No products yet. Tap the refresh button at the top, or add pickles in More → Catalog & prices.
           </p>
+        ) : (
+          <p className="-mt-1 text-sm text-slate-500">Tap a size to add it. Tap again to add one more.</p>
         )}
         {[...byCat.entries()].map(([cat, groups]) => (
           <div key={cat}>
-            <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">{cat}</div>
-            <div className="space-y-1.5">
+            <div className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-400">{cat}</div>
+            <div className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
               {[...groups.entries()].map(([base, sizes]) => (
-                <div key={base} className="flex flex-wrap items-center gap-1.5">
-                  <span className="w-full text-sm font-bold text-slate-900 min-[420px]:w-28 min-[420px]:shrink-0">{base}</span>
+                <div key={base} className="flex flex-wrap items-center gap-2 p-2.5">
+                  <span className="w-full font-bold text-slate-900 sm:w-40 sm:shrink-0">{base}</span>
                   {sizes.map((p) => {
                     const n = inCart(p.Product_Code)
                     return (
@@ -200,7 +223,7 @@ export default function NewOrder() {
                         type="button"
                         onClick={() => addItem(p.Product_Code)}
                         className={cx(
-                          'relative flex h-12 min-w-[5.5rem] flex-col items-center justify-center rounded-xl px-3 text-sm font-bold leading-tight ring-1 transition',
+                          'relative flex h-12 min-w-[5.25rem] flex-1 flex-col items-center justify-center rounded-xl px-2 text-sm font-bold leading-tight ring-1 transition sm:max-w-[7rem]',
                           n ? 'bg-indigo-600 text-white ring-indigo-600' : 'bg-white text-slate-800 ring-slate-300 active:bg-slate-100',
                         )}
                       >
@@ -218,104 +241,122 @@ export default function NewOrder() {
         {err('items') && <p className="text-sm font-medium text-rose-600">{err('items')}</p>}
 
         {f.items.length > 0 && (
-          <div className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
-            <div className="bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">In this order</div>
-            {f.items.map((x, i) => (
-              <div key={x.code} className="space-y-2 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-bold text-slate-900">{x.name}</div>
-                    <div className="text-xs text-slate-500">
-                      {x.code} · MRP {inr(x.mrp)}
+          <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200">
+            <div className="px-3 pt-3 text-xs font-bold uppercase tracking-wide text-slate-500">In this order</div>
+            <div className="divide-y divide-slate-200">
+              {f.items.map((x, i) => (
+                <div key={x.code} className="space-y-1.5 p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-bold text-slate-900">{x.name}</div>
+                      <div className="text-xs text-slate-500">{inr(x.mrp)} each</div>
                     </div>
+                    <Stepper value={x.qty} onChange={(q) => updItem(i, { qty: q })} />
+                    <button onClick={() => delItem(i)} className="grid h-9 w-9 place-items-center rounded-lg text-rose-600 active:bg-rose-50" aria-label="Remove">
+                      <Trash2 size={18} />
+                    </button>
                   </div>
-                  <button onClick={() => delItem(i)} className="grid h-9 w-9 place-items-center rounded-lg text-rose-600 active:bg-rose-50" aria-label="Remove">
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Stepper value={x.qty} onChange={(q) => updItem(i, { qty: q })} />
-                  <div className="flex flex-1 items-center rounded-xl bg-slate-100 px-2">
-                    <span className="text-xs font-semibold text-slate-500">Disc ₹</span>
-                    <input
-                      inputMode="numeric"
-                      className="h-11 w-full bg-transparent px-1 font-semibold outline-none"
-                      value={x.discount || ''}
-                      placeholder="0"
-                      onChange={(e) => updItem(i, { discount: e.target.value.replace(/\D/g, '') })}
-                    />
+                  <div className="flex items-center justify-between gap-2">
+                    {discOpen[x.code] || Number(x.discount) ? (
+                      <div className="flex max-w-[12rem] items-center gap-1.5 rounded-lg bg-white px-2 ring-1 ring-slate-200">
+                        <Tag size={14} className="text-emerald-600" />
+                        <span className="whitespace-nowrap text-xs font-semibold text-slate-500">Discount ₹</span>
+                        <input
+                          inputMode="numeric"
+                          autoFocus={!Number(x.discount)}
+                          className="h-8 w-full bg-transparent font-semibold outline-none"
+                          value={x.discount || ''}
+                          placeholder="0"
+                          onChange={(e) => updItem(i, { discount: e.target.value.replace(/\D/g, '') })}
+                        />
+                      </div>
+                    ) : (
+                      <button className="text-xs font-semibold text-indigo-700" onClick={() => setDiscOpen((d) => ({ ...d, [x.code]: true }))}>
+                        + Add discount
+                      </button>
+                    )}
+                    <div className="font-black text-slate-900">{inr(x.qty * x.mrp - (Number(x.discount) || 0))}</div>
                   </div>
-                  <div className="w-20 text-right font-black text-slate-900">{inr(x.qty * x.mrp - (Number(x.discount) || 0))}</div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
         {err('discount') && <p className="text-sm font-medium text-rose-600">{err('discount')}</p>}
-      </Card>
+      </Step>
 
-      <Card className="space-y-3 p-4">
+      <Step n={3} title="Delivery & payment">
+        <Field group label="Deliver by">
+          <div className="flex flex-wrap gap-2">
+            {dueChips.map(([v, label]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => set('dueDate', v)}
+                className={cx('h-10 rounded-full px-4 text-sm font-semibold', f.dueDate === v ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300')}
+              >
+                {label}
+              </button>
+            ))}
+            <input
+              type="date"
+              aria-label="Pick a date"
+              min={t}
+              value={customDate ? f.dueDate : ''}
+              onChange={(e) => set('dueDate', e.target.value)}
+              className={cx('h-10 rounded-full px-3 text-sm font-semibold outline-none', customDate ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-300')}
+            />
+          </div>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Delivery charge (₹)">
+          <Field label="Delivery charge ₹">
             <input className={inputCls} inputMode="numeric" value={f.deliveryCharge} onChange={(e) => set('deliveryCharge', e.target.value.replace(/\D/g, ''))} placeholder="0" />
           </Field>
-          <Field label="Deliver by">
-            <input className={inputCls} type="date" min={todayStr()} value={f.dueDate} onChange={(e) => set('dueDate', e.target.value)} />
+          <Field label="Note for kitchen">
+            <input className={inputCls} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="e.g. less spicy" />
           </Field>
         </div>
-        <Field label="Order notes" hint="Shown to the kitchen, e.g. less spicy, gift pack">
-          <input className={inputCls} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Optional" />
+        <Field group label="Payment">
+          <Segmented options={PAY} value={f.payment} onChange={(v) => set('payment', v)} colors={PAY_COLORS} labels={{ ...PAY_LABEL, UPI: 'Paid UPI', Cash: 'Paid cash' }} />
         </Field>
-        <Field label="Payment">
-          <Segmented options={PAY} value={f.payment} onChange={(v) => set('payment', v)} colors={PAY_COLORS} labels={PAY_LABEL} />
-        </Field>
-      </Card>
+      </Step>
 
-      <Card className="sticky bottom-20 z-10 p-4 shadow-lg">
-        <div className="mb-3 space-y-1 text-sm">
-          <div className="flex justify-between text-slate-600">
-            <span>Items ({f.items.reduce((a, x) => a + x.qty, 0)})</span>
-            <span>{inr(subtotal)}</span>
-          </div>
-          {discount > 0 && (
-            <div className="flex justify-between text-emerald-700">
-              <span>Discount</span>
-              <span>− {inr(discount)}</span>
+      {/* slim total bar above the bottom tabs */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20">
+        <div className="pointer-events-auto mx-auto max-w-3xl px-3 pb-2">
+          <div className="flex items-center gap-3 rounded-2xl bg-slate-900 p-2 pl-4 text-white shadow-xl">
+            <div className="min-w-0 flex-1 leading-tight">
+              <div className="truncate text-xs text-slate-400">
+                {count} item{count === 1 ? '' : 's'}
+                {discount > 0 && ` · −${inr(discount)} off`}
+                {delivery > 0 && ` · +${inr(delivery)} delivery`}
+              </div>
+              <div className="text-xl font-black">{inr(total)}</div>
             </div>
-          )}
-          {delivery > 0 && (
-            <div className="flex justify-between text-slate-600">
-              <span>Delivery</span>
-              <span>{inr(delivery)}</span>
-            </div>
-          )}
-          <div className="flex justify-between pt-1 text-xl font-black text-slate-900">
-            <span>Total</span>
-            <span>{inr(total)}</span>
+            <Button size="lg" variant="amber" className="h-12 px-5" onClick={submit}>
+              <ShoppingBasket size={20} /> Save order
+            </Button>
           </div>
         </div>
-        <Button size="lg" className="w-full" onClick={submit}>
-          <ShoppingBasket size={20} /> Save order
-        </Button>
-      </Card>
+      </div>
 
       <Sheet open={!!saved} onClose={() => setSaved(null)} title="Order saved">
         {saved && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-200">
-              <CheckCircle2 className="text-emerald-600" size={28} />
+              <CheckCircle2 className="shrink-0 text-emerald-600" size={28} />
               <div>
-                <div className="font-bold text-emerald-900">{saved.orderId}</div>
-                <div className="text-sm text-emerald-800">
+                <div className="font-bold text-emerald-900">
                   {saved.customerName} · {inr(saved.total)}
                 </div>
+                <div className="text-sm text-emerald-800">It’s now in Orders and on the kitchen list.</div>
               </div>
             </div>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 font-sans text-sm text-slate-700">
-              {build(templates.find((t) => t.key === 'order_confirm'), { order: saved })}
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 font-sans text-sm text-slate-700">
+              {build(templates.find((x) => x.key === 'order_confirm'), { order: saved })}
             </pre>
             <MessageButton order={saved} suggested="order_confirm" size="lg" className="w-full" label="Send confirmation on WhatsApp" />
-            <PayButton o={saved} size="lg" className="block w-full" />
+            <PayButton o={saved} size="lg" className="w-full" />
             <Button variant="ghost" className="w-full" onClick={() => setSaved(null)}>
               Take next order
             </Button>

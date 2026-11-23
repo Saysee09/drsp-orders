@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ChevronRight, FileText, KeyRound, Loader2, Upload, ListOrdered, LogOut, MessageSquareText, Plus, RotateCcw, Save, Smartphone, Trash2 } from 'lucide-react'
+import { ArrowLeft, Building2, ChevronRight, FileText, KeyRound, Loader2, Upload, ListOrdered, LogOut, MessageSquareText, Plus, RotateCcw, Save, Smartphone, Trash2 } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { getConfig } from '../lib/api'
 import { PLACEHOLDERS, SAMPLE_ORDER, customerCtx, fillTemplate, orderCtx } from '../lib/templates'
@@ -57,7 +57,7 @@ function TemplateEditor({ tpl, onClose }) {
         <input className={inputCls} value={t.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Diwali offer" />
       </Field>
       {!tpl.builtIn && (
-        <Field label="Send it from" hint="Order messages can use order details like items and total.">
+        <Field group label="Send it from" hint="Order messages can use order details like items and total.">
           <Segmented options={['customer', 'order']} labels={{ customer: 'Send screen', order: 'An order' }} value={t.type} onChange={(v) => set('type', v)} />
         </Field>
       )}
@@ -231,6 +231,53 @@ function MenuFiles() {
   )
 }
 
+/* -------------------------------------------------------- business details */
+
+function Business({ onDone }) {
+  const { callNow, notify, setSettings } = useStore()
+  const cfg = getConfig()
+  const [f, setF] = useState({ businessName: cfg.businessName || '', businessPhone: cfg.businessPhone || '', upiId: cfg.upiId || '', upiName: cfg.upiName || '', reviewLink: cfg.reviewLink || '' })
+  const [busy, setBusy] = useState(false)
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+  const linkOk = !f.reviewLink || /^https?:\/\/\S+$/.test(f.reviewLink.trim())
+  const save = async () => {
+    setBusy(true)
+    try {
+      setSettings(await callNow('saveSettings', { settings: f }))
+      notify('Business details saved', 'success')
+      onDone()
+    } catch {
+      notify('Could not save — check internet', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Card className="space-y-3 p-4">
+      <Field label="Business name" hint="Used in every WhatsApp message.">
+        <input className={inputCls} value={f.businessName} onChange={(e) => set('businessName', e.target.value)} />
+      </Field>
+      <Field label="Business WhatsApp number (optional)">
+        <input className={inputCls} type="tel" inputMode="numeric" value={f.businessPhone} onChange={(e) => set('businessPhone', e.target.value.replace(/[^\d+ ]/g, ''))} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="UPI ID (optional)" hint="Or just upload your UPI QR.">
+          <input className={inputCls} autoCapitalize="none" value={f.upiId} onChange={(e) => set('upiId', e.target.value.trim())} placeholder="name@okaxis" />
+        </Field>
+        <Field label="UPI name">
+          <input className={inputCls} value={f.upiName} onChange={(e) => set('upiName', e.target.value)} />
+        </Field>
+      </div>
+      <Field label="Google review link" error={linkOk ? '' : 'Paste the full link starting with https://'} hint="Google Business Profile → “Ask for reviews” → copy the link. The “Ask review” message sends customers straight there.">
+        <input className={inputCls} value={f.reviewLink} onChange={(e) => set('reviewLink', e.target.value.trim())} placeholder="https://g.page/r/…/review" />
+      </Field>
+      <Button size="lg" className="w-full" disabled={busy || !linkOk} onClick={save}>
+        {busy ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} Save
+      </Button>
+    </Card>
+  )
+}
+
 /* ----------------------------------------------------------- login settings */
 
 function Password({ onDone }) {
@@ -284,6 +331,7 @@ export default function More() {
   const views = {
     messages: ['Messages', <Messages key="m" />],
     catalog: ['Catalog & prices', <Admin key="c" />],
+    business: ['Business details', <Business key="b" onDone={() => setView(null)} />],
     password: ['Username & password', <Password key="p" onDone={() => setView(null)} />],
   }
   if (view)
@@ -303,6 +351,7 @@ export default function More() {
       <h1 className="text-2xl font-black text-slate-900">More</h1>
 
       <Card className="divide-y divide-slate-100">
+        <Row icon={Building2} title="Business details" sub={getConfig().reviewLink ? 'Name, UPI, Google review link ✓' : 'Name, UPI, Google review link'} onClick={() => setView('business')} />
         <Row icon={MessageSquareText} title="Messages" sub={`${templates.length} WhatsApp messages${edited ? ` · ${edited} changed by you` : ''}`} onClick={() => setView('messages')} />
         <Row icon={ListOrdered} title="Catalog & prices" sub={`${data.products.length} products · CSV price update`} onClick={() => setView('catalog')} />
         <Row icon={KeyRound} title="Username & password" sub={`Family login: ${auth?.user?.username || ''}`} onClick={() => setView('password')} />

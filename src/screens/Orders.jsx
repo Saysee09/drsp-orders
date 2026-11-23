@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CalendarClock, ClipboardList, CloudUpload, IndianRupee, MapPin, MoreVertical, Phone, Search, Star, StickyNote, Trash2, Truck } from 'lucide-react'
+import { CalendarClock, Check, ClipboardList, CloudUpload, IndianRupee, MapPin, MoreVertical, Phone, Search, Star, StickyNote, Trash2, Truck } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { PAY, STAGES, inr, needsFeedback, prettyDate, stageOf, todayStr } from '../lib/utils'
 import { Badge, Button, Card, Empty, PAY_COLORS, Pill, Segmented, Sheet, cx } from '../components/ui'
@@ -11,7 +11,7 @@ const FILTERS = [
   ['ready', 'Packed', (o) => stageOf(o) === 'packed'],
   ['way', 'On the way', (o) => o.delivery === 'Out for Delivery'],
   ['unpaid', 'Unpaid', (o) => o.payment === 'Unpaid'],
-  ['feedback', 'Ask feedback', (o) => needsFeedback(o)],
+  ['feedback', 'Ask review', (o) => needsFeedback(o)],
   ['all', 'All', () => true],
 ]
 
@@ -28,25 +28,28 @@ export function StageBar({ o }) {
   const { mutate, notify } = useStore()
   const cur = stageOf(o)
   const curIdx = STAGES.findIndex((s) => s.id === cur)
+  const i = (label) => `Marked “${label}”`
   const go = (s) => {
     if (s.id === cur) return
     const prev = { Prep_Status: o.prep, Delivery_Status: o.delivery }
     mutate('updateOrder', { orderId: o.orderId, fields: { Prep_Status: s.prep, Delivery_Status: s.delivery } })
-    notify(`${o.customerName}: ${s.label}`, 'info', { label: 'Undo', run: () => mutate('updateOrder', { orderId: o.orderId, fields: prev }) })
+    notify(i(s.label), 'info', { label: 'Undo', run: () => mutate('updateOrder', { orderId: o.orderId, fields: prev }) })
   }
   return (
     <div className="grid grid-cols-5 gap-1 rounded-xl bg-slate-100 p-1">
-      {STAGES.map((s, i) => (
+      {STAGES.map((s, n) => (
         <button
           key={s.id}
           type="button"
           onClick={() => go(s)}
+          aria-pressed={s.id === cur}
           className={cx(
-            'flex h-12 items-center justify-center rounded-lg px-0.5 text-center text-[13px] font-bold leading-tight transition',
-            s.id === cur ? STAGE_COLORS[s.id] : i < curIdx ? 'text-slate-400 line-through decoration-2' : 'text-slate-600 active:bg-slate-200',
+            'flex h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-0.5 text-center text-[12px] font-bold leading-none transition sm:text-[13px]',
+            s.id === cur ? STAGE_COLORS[s.id] + ' shadow-sm' : n < curIdx ? 'text-emerald-700' : 'text-slate-500 active:bg-slate-200',
           )}
         >
-          {s.label}
+          {n < curIdx && <Check size={14} strokeWidth={3} />}
+          <span>{s.label}</span>
         </button>
       ))}
     </div>
@@ -74,7 +77,7 @@ export function FeedbackButton({ o, className, size }) {
   return (
     <>
       <Button variant="amber" size={size} className={className} onClick={() => setOpen(true)}>
-        <Star size={18} /> Ask feedback
+        <Star size={18} /> Ask review
       </Button>
       <MessageSheet open={open} onClose={() => setOpen(false)} order={o} suggested="feedback" />
     </>
@@ -96,7 +99,7 @@ export function OrderCard({ o }) {
   const setPay = (v) => {
     const prev = o.payment
     mutate('updateOrder', { orderId: o.orderId, fields: { Payment_Status: v } })
-    notify(`${o.customerName}: ${v === 'Unpaid' ? 'Unpaid' : 'Paid ' + v}`, 'info', { label: 'Undo', run: () => mutate('updateOrder', { orderId: o.orderId, fields: { Payment_Status: prev } }) })
+    notify(v === 'Unpaid' ? 'Marked unpaid' : `Marked paid (${v})`, 'info', { label: 'Undo', run: () => mutate('updateOrder', { orderId: o.orderId, fields: { Payment_Status: prev } }) })
   }
   const overdue = o.dueDate && o.dueDate < todayStr() && o.delivery !== 'Delivered'
   const onTheWay = o.delivery === 'Out for Delivery'
@@ -233,7 +236,7 @@ export default function Orders() {
         <Search size={18} className="text-slate-400" />
         <input className="h-12 w-full bg-transparent outline-none" placeholder="Search name, phone or order ID" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+      <div className="flex flex-wrap gap-2">
         {FILTERS.map(([id, label]) => (
           <Pill key={id} active={filter === id} onClick={() => setFilter(id)}>
             {label} <span className="ml-1 opacity-60">{counts[id]}</span>

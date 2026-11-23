@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, SESSION_ERRORS, applyOp, call, isDemo } from './api'
+import { ApiError, SESSION_ERRORS, applyOp, applySettings, call, isDemo } from './api'
 import { buildCustomers, groupOrders } from './utils'
 import { mergeTemplates } from './templates'
 
 const Ctx = createContext(null)
 export const useStore = () => useContext(Ctx)
 
-const EMPTY = { products: [], orders: [], expenses: [], templates: [], files: {} }
+const EMPTY = { products: [], orders: [], expenses: [], templates: [], files: {}, campaigns: [], settings: {} }
 const load = (k, fallback) => {
   try {
     const v = JSON.parse(localStorage.getItem(k) || 'null')
@@ -40,6 +40,10 @@ export function StoreProvider({ children }) {
   const [toast, setToast] = useState(null)
   const [authError, setAuthError] = useState('')
   const queueRef = useRef(queue)
+  // Writes already saved but not yet seen in a fresh pull of the sheet. Keeping them
+  // on screen until the next pull stops buttons "jumping back" for a moment.
+  const [confirmed, setConfirmed] = useState([])
+  const confirmedRef = useRef([])
   const busy = useRef(false)
   const again = useRef(false)
   const syncRef = useRef(null)
@@ -71,6 +75,8 @@ export function StoreProvider({ children }) {
       localStorage.removeItem('drsp_last_sync')
       setServer(EMPTY)
       setQueue([])
+      confirmedRef.current = []
+      setConfirmed([])
       setAuth(null)
       setAuthError(reason)
     },
@@ -106,20 +112,29 @@ export function StoreProvider({ children }) {
       while (queueRef.current.length) {
         const op = queueRef.current[0]
         try {
-          const { action, id, ...payload } = op
+          const { action, _opId, ...payload } = op
           await call(action, { session: auth.session, ...payload })
           setOnline(true)
         } catch (err) {
           const r = handleError(err)
           if (r === 'network' || r === 'session') return
         }
+        confirmedRef.current = [...confirmedRef.current, op]
+        setConfirmed(confirmedRef.current)
         queueRef.current = queueRef.current.slice(1)
         setQueue(queueRef.current)
       }
-      // 2. pull the latest sheet
+      // 2. pull the latest sheet (skip if the user tapped something meanwhile; it'll run again)
+      const pulledAfter = confirmedRef.current.length
       const data = await call('sync', { session: auth.session })
+      if (queueRef.current.length) {
+        again.current = true
+        return
+      }
       setOnline(true)
-      setServer({ products: data.products || [], orders: data.orders || [], expenses: data.expenses || [], templates: data.templates || [], files: data.files || {} })
+      setServer({ products: data.products || [], orders: data.orders || [], expenses: data.expenses || [], templates: data.templates || [], files: data.files || {}, campaigns: data.campaigns || [], settings: data.settings || {} })
+      confirmedRef.current = confirmedRef.current.slice(pulledAfter)
+      setConfirmed(confirmedRef.current)
       if (data.user)
         setAuth((a) => {
           if (!a) return a
@@ -136,7 +151,7 @@ export function StoreProvider({ children }) {
       setSyncing(false)
       if (again.current) {
         again.current = false
-        if (queueRef.current.length) setTimeout(() => syncRef.current?.(), 300)
+        setTimeout(() => syncRef.current?.(), 300)
       }
     }
   }, [auth?.session, handleError])
@@ -148,7 +163,7 @@ export function StoreProvider({ children }) {
       const name = localStorage.getItem('drsp_device_name') || ''
       if (action === 'addOrder' && payload.order && !payload.order.leadBy) payload = { ...payload, order: { ...payload.order, leadBy: name } }
       if (action === 'addExpense' && payload.expense && !payload.expense.leadBy) payload = { ...payload, expense: { ...payload.expense, leadBy: name } }
-      const op = { id: crypto.randomUUID(), action, ...payload }
+      const op = { _opId: crypto.randomUUID(), action, ...payload }
       queueRef.current = [...queueRef.current, op]
       setQueue(queueRef.current)
       setTimeout(sync, 0)
@@ -214,17 +229,19 @@ export function StoreProvider({ children }) {
   // local view = server snapshot + writes not yet confirmed
   const data = useMemo(() => {
     let d = server
+    for (const op of confirmed) d = applyOp(d, op)
     for (const op of queue) {
       d = applyOp(d, op)
       if (op.action === 'addOrder') d.orders = d.orders.map((r) => (r.Order_ID === op.order.orderId ? { ...r, _pending: true } : r))
     }
     return d
-  }, [server, queue])
+  }, [server, queue, confirmed])
 
   const orders = useMemo(() => groupOrders(data.orders), [data.orders])
   const customers = useMemo(() => buildCustomers(data.orders), [data.orders])
   const activeProducts = useMemo(() => data.products.filter((p) => (p.Active_Status || 'Active') === 'Active'), [data.products])
   const templates = useMemo(() => mergeTemplates(data.templates), [data.templates])
+  applySettings(server.settings) // business details from the sheet (used by getConfig)
   const user = auth ? { username: auth.user?.username || '', name: deviceName || auth.user?.username || '' } : null
 
   /** After an upload: show the new file at once (next sync confirms it). */
@@ -239,6 +256,9 @@ export function StoreProvider({ children }) {
 
   const value = {
     files: data.files || {},
+    campaigns: data.campaigns || [],
+    settings: server.settings || {},
+    setSettings: (s) => setServer((x) => ({ ...x, settings: s })),
     setFileMeta,
     auth,
     user,

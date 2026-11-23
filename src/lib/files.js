@@ -138,7 +138,7 @@ export function useFiles(kinds, files, callNow) {
  */
 export async function shareFiles(recs, text) {
   const files = recs.map((r) => {
-    const def = FILE_KINDS.find((k) => k.kind === r.kind)
+    const def = FILE_KINDS.find((k) => k.kind === r.kind) || { share: 'DRSP.jpg' }
     const ext = r.mimeType === 'application/pdf' ? '.pdf' : r.mimeType === 'image/png' ? '.png' : '.jpg'
     return new File([r.blob], (def?.share || r.name).replace(/\.\w+$/, ext), { type: r.mimeType || r.blob.type })
   })

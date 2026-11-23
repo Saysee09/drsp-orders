@@ -105,17 +105,16 @@ Thank you for supporting our family kitchen! 🙏`,
   },
   {
     key: 'feedback',
-    name: 'Ask for feedback',
+    name: 'Ask for review',
     type: 'order',
     text: `Namaste {first_name}! 🙏
 
 Hope you are enjoying your *{items_short}* from *{business}*!
 
-How did you like it? Please reply with a rating ⭐ 1–5 and a line about the taste, spice and freshness. Your feedback helps our small family kitchen a lot.
+If you liked it, a quick Google review ⭐ would mean the world to our small family kitchen:
+👉 {review_link}
 
-If you loved it, a quick review here would mean the world to us: {review_link}
-
-Thank you for supporting us! 🏺`,
+Any thoughts on the taste or spice? Just reply here. Thank you for supporting us! 🏺`,
   },
   {
     key: 'nudge',
@@ -151,7 +150,7 @@ export const PLACEHOLDERS = [
   ['due_date', 'Deliver-by date'],
   ['address', 'Delivery address'],
   ['favorite', 'Customer’s usual pickle'],
-  ['review_link', 'Review link'],
+  ['review_link', 'Google review link'],
 ]
 const KNOWN = new Set(PLACEHOLDERS.map((p) => p[0]))
 
