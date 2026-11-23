@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react'
-import { ChevronRight, Crown, FileText, Image as ImageIcon, MessageCircle, Pencil, Send as SendIcon, UserCheck } from 'lucide-react'
+import { ChevronRight, Crown, MessageCircle, Pencil, Send as SendIcon, UserCheck } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { cleanPhone, inr, isValidPhone, prettyDate, waLink } from '../lib/utils'
-import { shareMenuFile, useMenuFiles } from '../lib/menu'
+import { MENU_KINDS } from '../lib/files'
 import { Badge, Button, Card, Field, SectionTitle, inputCls } from '../components/ui'
-import { MessageSheet, useMessage } from '../components/Messages'
+import { AttachButton, MessageSheet, useMessage } from '../components/Messages'
 
 export default function Send() {
-  const { customers, templates, notify } = useStore()
-  const menu = useMenuFiles()
+  const { customers, templates, notify, files } = useStore()
   const build = useMessage()
   const [raw, setRaw] = useState('')
   const [name, setName] = useState('')
@@ -20,8 +19,8 @@ export default function Send() {
   const known = useMemo(() => (ok ? customers.find((c) => c.phone === phone) : null), [ok, phone, customers])
   const who = name.trim() || known?.name || ''
 
-  const hasFiles = menu.image || menu.pdf
-  const menuTpl = templates.find((t) => t.key === (hasFiles || menu.link ? 'menu' : 'menu_text'))
+  const hasFiles = MENU_KINDS.some((k) => files[k])
+  const menuTpl = templates.find((t) => t.key === (hasFiles ? 'menu' : 'menu_text'))
   const others = templates.filter((t) => t.type === 'customer' && t.key !== 'menu' && t.key !== 'menu_text')
   const menuMsg = menuTpl ? build(menuTpl, { phone, name: who }) : ''
 
@@ -33,11 +32,6 @@ export default function Send() {
       return false
     }
     return true
-  }
-
-  const share = async (kind) => {
-    const r = await shareMenuFile(kind, menuMsg)
-    if (r === 'unsupported') notify('This phone can’t attach files from the app — the file was downloaded instead. Attach it in WhatsApp.', 'info')
   }
 
   return (
@@ -82,32 +76,13 @@ export default function Send() {
       <Card className="space-y-3 p-4">
         <a href={ok ? waLink(phone, menuMsg) : '#'} target="_blank" rel="noreferrer" onClick={guard} className="block">
           <Button variant="whatsapp" size="lg" className="w-full">
-            <SendIcon size={20} /> Send menu on WhatsApp
+            <SendIcon size={20} /> {hasFiles ? '1. Open chat with menu message' : 'Send menu on WhatsApp'}
           </Button>
         </a>
-        <p className="text-xs text-slate-500">
-          {hasFiles
-            ? 'Opens this customer’s chat with the menu message and a link to your menu photo & PDF. WhatsApp shows the photo in the chat.'
-            : menu.loading
-              ? 'Checking menu files…'
-              : 'Menu photo & PDF are not added yet, so this sends the price list as text for now.'}
-        </p>
-        {hasFiles && (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              {menu.image && (
-                <Button variant="outline" onClick={() => share('image')}>
-                  <ImageIcon size={18} /> Share photo
-                </Button>
-              )}
-              {menu.pdf && (
-                <Button variant="outline" onClick={() => share('pdf')}>
-                  <FileText size={18} /> Share PDF
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-slate-500">“Share” attaches the actual file. WhatsApp then asks which chat — pick the customer (open their chat first with the green button so they’re at the top).</p>
-          </>
+        {hasFiles ? (
+          ok && <AttachButton kinds={MENU_KINDS} who={who} />
+        ) : (
+          <p className="text-xs text-slate-500">No menu photo / PDF uploaded yet, so this sends the price list as text. Upload them in More → Menu & payment files.</p>
         )}
         <Button variant="ghost" size="sm" onClick={() => setSheet(menuTpl?.key)}>
           <Pencil size={16} /> Change the words first

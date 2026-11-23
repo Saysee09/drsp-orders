@@ -64,6 +64,9 @@ const PAY = ['Unpaid', 'UPI', 'Cash'];
 const DELIVERY = ['Pending', 'Out for Delivery', 'Delivered', 'Shipped'];
 const TEMPLATE_TYPES = ['customer', 'order'];
 const MAX_FAILS = 8;
+// Files uploaded from the app (More → Menu & payment files). Kept in a Drive folder you own.
+const FILE_KINDS = ['menu_image', 'menu_pdf', 'upi_qr'];
+const MAX_FILE_MB = 10;
 const LOCK_MINUTES = 15;
 
 /* ---------------------------------------------------------------- setup */
@@ -103,6 +106,7 @@ function setup() {
   const blank = ss.getSheetByName('Sheet1');
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
 
+  filesFolder_(); // creates the Drive folder for menu / QR files (asks for Drive permission)
   rebuildCustomers_();
   Logger.log('DRSP Orders setup complete. Login: ' + APP_USERNAME + ' / (your APP_PASSWORD). Message templates are added by the app the first time you edit one.');
 }
@@ -130,6 +134,9 @@ function doPost(e) {
     }
     if (req.action === 'sync') return json_({ ok: true, data: snapshot_(user) });
     if (req.action === 'changePassword') return json_({ ok: true, data: changePassword_(req, user) });
+    if (req.action === 'getFile') return json_({ ok: true, data: getFile_(req) });
+    if (req.action === 'uploadFile') return json_({ ok: true, data: uploadFile_(req) });
+    if (req.action === 'deleteFile') return json_({ ok: true, data: deleteFile_(req) });
 
     if (!ACTIONS[req.action]) return json_({ ok: false, error: 'UNKNOWN_ACTION' });
 
@@ -251,6 +258,7 @@ function snapshot_(user) {
     expenses: readRows_('Expenses'),
     customers: readRows_('Customers'),
     templates: readRows_('Templates'),
+    files: filesMeta_(),
     serverTime: new Date().toISOString(),
   };
 }
@@ -404,6 +412,68 @@ function deleteTemplate_(req) {
   const sh = sheet_('Templates');
   const keys = columnValues_(sh, 'Key');
   for (let i = keys.length - 1; i >= 0; i--) if (keys[i] === req.key) sh.deleteRow(i + 2);
+  return { deleted: true };
+}
+
+/* ------------------------------------------------------------------ files */
+
+function filesFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('FILES_FOLDER');
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) { /* deleted: make a new one */ }
+  }
+  const folder = DriveApp.createFolder('DRSP Orders – Files');
+  props.setProperty('FILES_FOLDER', folder.getId());
+  return folder;
+}
+
+function filesMeta_() {
+  const props = PropertiesService.getScriptProperties();
+  const out = {};
+  FILE_KINDS.forEach(function (k) {
+    const raw = props.getProperty('FILE_' + k);
+    if (raw) { const m = JSON.parse(raw); delete m.id; out[k] = m; }
+  });
+  return out;
+}
+
+function uploadFile_(req) {
+  if (FILE_KINDS.indexOf(req.kind) === -1) throw new Error('BAD_FILE_KIND');
+  if (!req.data) throw new Error('NO_FILE');
+  const bytes = Utilities.base64Decode(req.data);
+  if (bytes.length > MAX_FILE_MB * 1048576) throw new Error('FILE_TOO_BIG');
+  const props = PropertiesService.getScriptProperties();
+  const old = props.getProperty('FILE_' + req.kind);
+  const name = String(req.name || req.kind).slice(0, 80);
+  const file = filesFolder_().createFile(Utilities.newBlob(bytes, req.mimeType || 'application/octet-stream', name));
+  let url = '';
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    url = file.getUrl();
+  } catch (e) { /* some accounts block link sharing: the file can still be shared from the app */ }
+  if (old) { try { DriveApp.getFileById(JSON.parse(old).id).setTrashed(true); } catch (e) { /* already gone */ } }
+  const meta = { id: file.getId(), name: name, mimeType: req.mimeType || '', size: bytes.length, updatedAt: new Date().toISOString(), url: url };
+  props.setProperty('FILE_' + req.kind, JSON.stringify(meta));
+  delete meta.id;
+  return meta;
+}
+
+function getFile_(req) {
+  const raw = PropertiesService.getScriptProperties().getProperty('FILE_' + req.kind);
+  if (!raw) throw new Error('NO_FILE');
+  const m = JSON.parse(raw);
+  const blob = DriveApp.getFileById(m.id).getBlob();
+  return { name: m.name, mimeType: m.mimeType || blob.getContentType(), updatedAt: m.updatedAt, data: Utilities.base64Encode(blob.getBytes()) };
+}
+
+function deleteFile_(req) {
+  const props = PropertiesService.getScriptProperties();
+  const raw = props.getProperty('FILE_' + req.kind);
+  if (raw) {
+    try { DriveApp.getFileById(JSON.parse(raw).id).setTrashed(true); } catch (e) { /* already gone */ }
+    props.deleteProperty('FILE_' + req.kind);
+  }
   return { deleted: true };
 }
 

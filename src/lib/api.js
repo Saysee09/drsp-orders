@@ -1,6 +1,6 @@
 import { addDays, todayStr, makeId } from './utils'
 
-let config = { apiUrl: '', businessName: 'DRSP Homemade Pickles', businessPhone: '', upiId: '', upiName: '', reviewLink: '', menuUrl: '' }
+let config = { apiUrl: '', businessName: 'DRSP Homemade Pickles', businessPhone: '', upiId: '', upiName: '', reviewLink: '' }
 
 export async function loadConfig() {
   try {
@@ -239,7 +239,7 @@ async function demoCall(action, payload) {
   if (action === 'logout') return null
   if (action === 'changePassword') throw new ApiError('DEMO_ONLY')
   const db = demoDb()
-  if (action === 'sync') return { ...db, user: { username: DEMO_LOGIN.username }, serverTime: new Date().toISOString() }
+  if (action === 'sync') return { ...db, files: JSON.parse(localStorage.getItem('drsp_demo_files') || '{}'), user: { username: DEMO_LOGIN.username }, serverTime: new Date().toISOString() }
   const next = applyOp(db, { action, ...payload })
   localStorage.setItem('drsp_demo_db', JSON.stringify(next))
   return { ok: true }

@@ -32,10 +32,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
-        globIgnores: ['config.json', 'menu/**'],
+        globIgnores: ['config.json'],
         navigateFallback: 'index.html',
-        // the customer menu page is its own page, not part of the app
-        navigateFallbackDenylist: [/\/menu\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.endsWith('/config.json'),

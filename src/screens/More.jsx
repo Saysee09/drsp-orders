@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
-import { ArrowLeft, ChevronRight, ExternalLink, FileText, Image as ImageIcon, KeyRound, ListOrdered, LogOut, MessageSquareText, Plus, RotateCcw, Save, Smartphone, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, ChevronRight, FileText, KeyRound, Loader2, Upload, ListOrdered, LogOut, MessageSquareText, Plus, RotateCcw, Save, Smartphone, Trash2 } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { getConfig } from '../lib/api'
 import { PLACEHOLDERS, SAMPLE_ORDER, customerCtx, fillTemplate, orderCtx } from '../lib/templates'
-import { menuFileUrl, useMenuFiles } from '../lib/menu'
+import { FILE_KINDS, loadFile, removeFile, uploadFile } from '../lib/files'
 import { Badge, Button, Card, Field, SectionTitle, Segmented, Sheet, inputCls } from '../components/ui'
 import Admin from './Admin'
 
@@ -24,14 +24,13 @@ function Row({ icon: Icon, title, sub, onClick, right }) {
 /* ----------------------------------------------------------- messages */
 
 function TemplateEditor({ tpl, onClose }) {
-  const { mutate, notify, activeProducts } = useStore()
-  const menu = useMenuFiles()
+  const { mutate, notify, activeProducts, files } = useStore()
   const isNew = !tpl.key
   const [t, setT] = useState({ key: tpl.key || 'custom_' + Date.now().toString(36), name: tpl.name || '', type: tpl.type || 'customer', text: tpl.text || 'Namaste {first_name}! 🙏\n\n' })
   const ref = useRef(null)
   const set = (k, v) => setT((s) => ({ ...s, [k]: v }))
   const cfg = getConfig()
-  const extra = { menuLink: menu.link || 'https://…/menu/', products: activeProducts, favorite: 'Mango - 500gm' }
+  const extra = { menuLink: files.menu_pdf?.url || files.menu_image?.url || 'https://drive.google.com/…', products: activeProducts, favorite: 'Mango - 500gm' }
   const preview = fillTemplate(t.text, t.type === 'order' ? orderCtx(SAMPLE_ORDER, cfg, extra) : customerCtx({ name: 'Lakshmi Reddy', favorite: 'Mango - 500gm' }, cfg, extra))
 
   const insert = (key) => {
@@ -153,28 +152,82 @@ function Messages() {
 
 /* -------------------------------------------------------------- menu files */
 
-function MenuFiles() {
-  const menu = useMenuFiles()
+function FileRow({ def }) {
+  const { files, callNow, setFileMeta, notify } = useStore()
+  const meta = files[def.kind]
+  const input = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const [thumb, setThumb] = useState('')
+
+  useEffect(() => {
+    let url = ''
+    if (meta && meta.mimeType?.startsWith('image/'))
+      loadFile(def.kind, meta, callNow)
+        .then((r) => r && setThumb((url = URL.createObjectURL(r.blob))))
+        .catch(() => {})
+    else setThumb('')
+    return () => url && URL.revokeObjectURL(url)
+  }, [meta?.updatedAt]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pick = async (e) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    setBusy(true)
+    try {
+      setFileMeta(def.kind, await uploadFile(def.kind, f, callNow))
+      notify(`${def.label} saved`, 'success')
+    } catch (err) {
+      notify(err.code === 'FILE_TOO_BIG' ? 'File is too big (max 10 MB)' : err.code ? `Upload failed (${err.code})` : 'No internet — try again', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = async () => {
+    if (!confirm(`Remove ${def.label}?`)) return
+    setBusy(true)
+    try {
+      await removeFile(def.kind, callNow)
+      setFileMeta(def.kind, null)
+    } catch {
+      notify('Could not remove — check internet', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <Card className="space-y-3 p-4">
-      <div className="flex gap-2">
-        <Badge className={menu.image ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}>
-          <ImageIcon size={12} className="mr-1" /> Photo {menu.image ? 'added' : 'missing'}
-        </Badge>
-        <Badge className={menu.pdf ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}>
-          <FileText size={12} className="mr-1" /> PDF {menu.pdf ? 'added' : 'missing'}
-        </Badge>
+    <div className="flex items-center gap-3 p-3">
+      <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-100">
+        {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" /> : <FileText size={26} className="text-slate-400" />}
       </div>
-      {menu.image && <img src={menuFileUrl('image')} alt="Menu" className="max-h-80 w-full rounded-xl object-contain ring-1 ring-slate-200" />}
-      {menu.link ? (
-        <a href={menu.link} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm font-semibold text-indigo-700">
-          <ExternalLink size={16} /> See the page customers get
-        </a>
-      ) : null}
-      <p className="text-xs text-slate-500">
-        To add or update the menu, upload <b>menu.jpg</b> and <b>menu.pdf</b> into the <code>public/menu</code> folder of the GitHub repo (or send them to Claude). The app updates about a minute later.
-      </p>
-    </Card>
+      <div className="min-w-0 flex-1">
+        <div className="font-bold text-slate-900">{def.label}</div>
+        <div className="truncate text-xs text-slate-500">{meta ? `${meta.name} · ${(meta.size / 1048576).toFixed(1)} MB` : 'Not uploaded'}</div>
+        {meta && (
+          <button onClick={remove} className="text-xs font-semibold text-rose-600">
+            Remove
+          </button>
+        )}
+      </div>
+      <Button variant={meta ? 'outline' : 'dark'} size="sm" disabled={busy} onClick={() => input.current?.click()}>
+        {busy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {meta ? 'Replace' : 'Upload'}
+      </Button>
+      <input ref={input} type="file" accept={def.accept} className="hidden" onChange={pick} />
+    </div>
+  )
+}
+
+function MenuFiles() {
+  return (
+    <>
+      <Card className="divide-y divide-slate-100">
+        {FILE_KINDS.map((d) => (
+          <FileRow key={d.kind} def={d} />
+        ))}
+      </Card>
+      <p className="px-1 text-xs text-slate-500">Saved in your Google Drive (folder “DRSP Orders – Files”), so every phone gets them. Menu files are attached when you send the menu; the UPI QR when you ask for payment.</p>
+    </>
   )
 }
 
@@ -225,7 +278,6 @@ function Password({ onDone }) {
 
 export default function More() {
   const { deviceName, setDeviceName, signOut, queue, auth, templates, data, notify } = useStore()
-  const menu = useMenuFiles()
   const [view, setView] = useState(null)
   const [name, setName] = useState(deviceName)
 
@@ -256,8 +308,8 @@ export default function More() {
         <Row icon={KeyRound} title="Username & password" sub={`Family login: ${auth?.user?.username || ''}`} onClick={() => setView('password')} />
       </Card>
 
-      <SectionTitle>Menu photo & PDF</SectionTitle>
-      {menu.loading ? <Card className="p-4 text-sm text-slate-500">Checking…</Card> : <MenuFiles />}
+      <SectionTitle>Menu & payment files</SectionTitle>
+      <MenuFiles />
 
       <SectionTitle>This phone</SectionTitle>
       <Card className="space-y-3 p-4">

@@ -14,11 +14,11 @@ import { PAY_LABEL, inr, isValidUpi, menuText, prettyDate, upiUri } from './util
 export const DEFAULT_TEMPLATES = [
   {
     key: 'menu',
-    name: 'Menu (photo + PDF link)',
+    name: 'Menu (with photo / PDF)',
     type: 'customer',
     text: `Namaste {first_name}! 🙏
 
-Here is the *{business}* menu 🏺
+Here is the *{business}* menu 🏺 (photo / PDF attached)
 👉 {menu_link}
 
 Fresh, authentic, homemade pickles made with premium ingredients.
@@ -137,7 +137,7 @@ export const PLACEHOLDERS = [
   ['first_name', 'Customer first name'],
   ['name', 'Customer full name'],
   ['business', 'Business name'],
-  ['menu_link', 'Link to menu photo & PDF'],
+  ['menu_link', 'Google Drive link to the menu'],
   ['menu_text', 'Price list from the catalog'],
   ['order_id', 'Order ID'],
   ['items', 'Items with qty & price'],

@@ -6,7 +6,7 @@ import { mergeTemplates } from './templates'
 const Ctx = createContext(null)
 export const useStore = () => useContext(Ctx)
 
-const EMPTY = { products: [], orders: [], expenses: [], templates: [] }
+const EMPTY = { products: [], orders: [], expenses: [], templates: [], files: {} }
 const load = (k, fallback) => {
   try {
     const v = JSON.parse(localStorage.getItem(k) || 'null')
@@ -119,7 +119,7 @@ export function StoreProvider({ children }) {
       // 2. pull the latest sheet
       const data = await call('sync', { session: auth.session })
       setOnline(true)
-      setServer({ products: data.products || [], orders: data.orders || [], expenses: data.expenses || [], templates: data.templates || [] })
+      setServer({ products: data.products || [], orders: data.orders || [], expenses: data.expenses || [], templates: data.templates || [], files: data.files || {} })
       if (data.user)
         setAuth((a) => {
           if (!a) return a
@@ -227,7 +227,19 @@ export function StoreProvider({ children }) {
   const templates = useMemo(() => mergeTemplates(data.templates), [data.templates])
   const user = auth ? { username: auth.user?.username || '', name: deviceName || auth.user?.username || '' } : null
 
+  /** After an upload: show the new file at once (next sync confirms it). */
+  const setFileMeta = useCallback((kind, meta) => {
+    setServer((s) => {
+      const files = { ...(s.files || {}) }
+      if (meta) files[kind] = meta
+      else delete files[kind]
+      return { ...s, files }
+    })
+  }, [])
+
   const value = {
+    files: data.files || {},
+    setFileMeta,
     auth,
     user,
     deviceName,
